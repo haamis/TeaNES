@@ -1,10 +1,3 @@
-/*
- * TeaNES.cpp
- *
- *  Created on: 28.11.2014
- *      Author: Haama
- */
-
 #include <iostream>
 #include <iomanip>
 #include <memory>
@@ -12,26 +5,26 @@
 
 //using namespace std;
 
-	// Declare CPU registers.
-	uint8_t A = 0;
-	uint8_t X = 0;
-	uint8_t Y = 0;
-	uint8_t flags = 0;
-	uint8_t SP = 0;
+// Declare CPU registers.
+uint8_t a = 0;
+uint8_t x = 0;
+uint8_t y = 0;
+uint8_t flags = 0;
+uint8_t stack_pointer = 255;
 
-	// Counter for counting down cycles to next interrupt.
-	int32_t InterruptCounter = 0;
+// Counter for counting down cycles to next interrupt.
+int32_t interrupt_counter = 512;
 
-	// TODO: Write proper logic for finding initial program counter value (reset vector apparently).
-	uint16_t PC = 0xC000;
+// TODO: Write proper logic for finding initial program counter value (reset vector apparently).
+uint16_t program_counter = 0xC000;
 
-	uint8_t opCode;
+uint8_t op_code;
 
-	char*  Memory = new char[64*1024];
+char*  memory = new char[64*1024];
 
 void executeOp() {
-		opCode = Memory[PC++];
-		switch (opCode) {
+		op_code = memory[program_counter++];
+		switch (op_code) {
 		case (0x00):
 			break;
 		/*case (0x01):
@@ -354,8 +347,10 @@ void executeOp() {
 	}
 
 void printState() {
-	std::cout << std::hex << "OpCode: " << int(opCode);
-	std::cout << std::hex << ", A: " << int(A) << ", X: " << int(X) << ", Y: " << int(Y) << ", flags: " << int(flags) << ", SP: " << std::hex << int(SP) << ", PC: " << int(PC) << ", InterruptCounter: " << int(InterruptCounter) << "\n";
+	std::cout << std::hex << "op_code: " << int(op_code);
+	std::cout << std::hex << ", A: " << int(a) << ", X: " << int(x) << ", Y: " << int(y) <<
+	", flags: " << int(flags) << ", SP: " << std::hex << int(stack_pointer) << ", PC: " << 
+	int(program_counter) << ", InterruptCounter: " << int(interrupt_counter) << "\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -363,7 +358,7 @@ int main(int argc, char* argv[]) {
 	std::ifstream romfile(argv[1], std::ios::in|std::ios::binary|std::ios::ate);
 	romfile.seekg(16);
 	std::streampos size = 16*1024;
-	romfile.read(Memory+0xc000, size);
+	romfile.read(memory+0xc000, size);
 	romfile.close();
 
 	for(;;) {

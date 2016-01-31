@@ -2,6 +2,7 @@
 #include <iomanip>
 #include <memory>
 #include <fstream>
+#include <cstdint>
 
 //using namespace std;
 
@@ -9,14 +10,13 @@
 uint8_t a = 0;
 uint8_t x = 0;
 uint8_t y = 0;
-uint8_t flags = 0;
+bool flags[] = {0,0,0,0,0,0,0,0};
 uint8_t stack_pointer = 255;
 
 // Counter for counting down cycles to next interrupt.
 int32_t interrupt_counter = 512;
 
-// TODO: Write proper logic for finding initial program counter value (reset vector apparently).
-uint16_t program_counter = 0xC000;
+uint16_t program_counter;
 
 uint8_t op_code;
 
@@ -349,7 +349,8 @@ void executeOp() {
 void printState() {
 	std::cout << std::hex << "op_code: " << int(op_code);
 	std::cout << std::hex << ", A: " << int(a) << ", X: " << int(x) << ", Y: " << int(y) <<
-	", flags: " << int(flags) << ", SP: " << std::hex << int(stack_pointer) << ", PC: " << 
+	", flags: " << flags[0] << flags[1] << flags[2] << flags[3] << flags[4] << flags[5] << 
+	flags[6] << flags[7] << ", SP: " << std::hex << int(stack_pointer) << ", PC: " << 
 	int(program_counter) << ", InterruptCounter: " << int(interrupt_counter) << "\n";
 }
 
@@ -360,6 +361,8 @@ int main(int argc, char* argv[]) {
 	std::streampos size = 16*1024;
 	romfile.read(memory+0xc000, size);
 	romfile.close();
+	program_counter = 256 * memory[0xfffd] + memory[0xfffc];
+	std::cout << program_counter;
 
 	for(;;) {
 		printState();

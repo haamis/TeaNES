@@ -4,30 +4,43 @@
 #include <fstream>
 #include <cstdint>
 
+#define INTERRUPT_CYCLES 512
+
 //using namespace std;
 
 // Declare CPU registers.
 uint8_t a = 0;
 uint8_t x = 0;
 uint8_t y = 0;
-bool flags[] = {0,0,0,0,0,0,0,0};
+
+struct flags_t {
+	bool n;		// negative
+	bool v;		// overflow
+	bool b;		// break
+	bool d;		// decimal mode
+	bool i;		// interrupt disable
+	bool z;		// zero
+	bool c;		// carry
+} flags;
+//bool flags[] = {0,0,0,0,0,0,0,0};
+
 uint8_t stack_pointer = 255;
 
 // Counter for counting down cycles to next interrupt.
-int32_t interrupt_counter = 512;
+int32_t interrupt_counter = INTERRUPT_CYCLES;
 
 uint16_t program_counter;
 
 uint8_t op_code;
 
-char*  memory = new char[64*1024];
+unsigned char*  memory = new unsigned char[64*1024];
 
 void executeOp() {
 		op_code = memory[program_counter++];
 		switch (op_code) {
 		case (0x00):
 			break;
-		/*case (0x01):
+		case (0x01):
 			break;
 		case (0x05):
 			;
@@ -41,8 +54,9 @@ void executeOp() {
 		case (0x09):
 			;
 			break;
-		case (0x0A):
-			;
+		case (0x0A):	// ASL A
+			a = a << 1;
+			interrupt_counter -= 2;
 			break;
 		case (0x0D):
 			;
@@ -293,12 +307,15 @@ void executeOp() {
 		case (0x9D):
 			;
 			break;
-		case (0x7E):
-			;
+		case (0xE8):	// INX
+			x++;
+			interrupt_counter -= 2;
 			break;
-		case (0x7E):
-			;
+		case (0xC8):	// INY
+			y++;
+			interrupt_counter -= 2;
 			break;
+		/*
 		case (0x7E):
 			;
 			break;
@@ -347,11 +364,11 @@ void executeOp() {
 	}
 
 void printState() {
-	std::cout << std::hex << "op_code: " << int(op_code);
-	std::cout << std::hex << ", A: " << int(a) << ", X: " << int(x) << ", Y: " << int(y) <<
-	", flags: " << flags[0] << flags[1] << flags[2] << flags[3] << flags[4] << flags[5] << 
-	flags[6] << flags[7] << ", SP: " << std::hex << int(stack_pointer) << ", PC: " << 
-	int(program_counter) << ", InterruptCounter: " << int(interrupt_counter) << "\n";
+	std::cout << std::showbase << std::hex << "op_code: " << int(op_code) << ", A: " << int(a)
+	<< ", X: " << int(x) << ", Y: " << int(y) << ", flags: " << "N: " << flags.n << " V: " << flags.v
+	<< " B: " << flags.b << " D: " << flags.d << " I: " << flags.i << " Z: " << flags.z << " C: "
+	<< flags.c << ", SP: " << int(stack_pointer) << ", PC: " << int(program_counter) 
+	<< ", interrupt_counter: " << std::dec << int(interrupt_counter) << "\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -359,16 +376,17 @@ int main(int argc, char* argv[]) {
 	std::ifstream romfile(argv[1], std::ios::in|std::ios::binary|std::ios::ate);
 	romfile.seekg(16);
 	std::streampos size = 16*1024;
-	romfile.read(memory+0xc000, size);
+	romfile.read( (char*) memory+0xc000, size);
 	romfile.close();
-	program_counter = 256 * memory[0xfffd] + memory[0xfffc];
-	std::cout << program_counter;
+	program_counter = (memory[0xfffd] << 8) + memory[0xfffc];
 
 	for(;;) {
 		printState();
 		executeOp();
+		if(interrupt_counter <= 0) {
+			interrupt_counter += INTERRUPT_CYCLES;
+			std::cout << "interrupt_counter <=0!" << '\n';
+		}
 		std::cin.get();
 	}
 }
-
-

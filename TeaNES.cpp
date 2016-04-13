@@ -4,25 +4,17 @@
 #include <fstream>
 #include <cstdint>
 
+#include <bitset>
+
 #define INTERRUPT_CYCLES 512
 
 //using namespace std;
 
 // Declare CPU registers.
-uint8_t a = 0;
-uint8_t x = 0;
-uint8_t y = 0;
-
-struct flags_t {
-	bool n;		// negative
-	bool v;		// overflow
-	bool b;		// break
-	bool d;		// decimal mode
-	bool i;		// interrupt disable
-	bool z;		// zero
-	bool c;		// carry
-} flags;
-//bool flags[] = {0,0,0,0,0,0,0,0};
+uint8_t A = 0;
+uint8_t X = 0;
+uint8_t Y = 0;
+uint8_t flags = 0;
 
 uint8_t stack_pointer = 255;
 
@@ -33,12 +25,80 @@ uint16_t program_counter;
 
 uint8_t op_code;
 
-unsigned char*  memory = new unsigned char[64*1024];
+unsigned char* memory = new unsigned char[64*1024];
+
+void setFlag(char ch, uint8_t v) {
+	switch (ch) {
+	case ('n'):		// negative
+		flags = flags | v << 7;
+		break;
+	case ('v'):		// overflow
+		flags = flags | v << 6;
+		break;
+	case ('b'):		// break
+		flags = flags | v << 4;
+		break;
+	case ('d'):		// decimal mode (does nothing on the NES)
+		flags = flags | v << 3;
+		break;
+	case ('i'):		// interrupt disable
+		flags = flags | v << 2;
+		break;
+	case ('z'):		// zero
+		flags = flags | v << 1;
+		break;
+	case ('c'):		// carry
+		flags = flags | v << 0;
+		break;
+	}
+}
+
+uint8_t getFlag(char ch) {
+	switch (ch) {
+	case ('n'):		// negative
+		return flags >> 7 & 1;
+		break;
+	case ('v'):		// overflow
+		return flags >> 6 & 1;
+		break;
+	case ('b'):		// break
+		return flags >> 4 & 1;
+		break;
+	case ('d'):		// decimal mode (does nothing on the NES)
+		return flags >> 3 & 1;
+		break;
+	case ('i'):		// interrupt disable
+		return flags >> 2 & 1;
+		break;
+	case ('z'):		// zero
+		return flags >> 1 & 1;
+		break;
+	case ('c'):		// carry
+		return flags >> 0 & 1;
+		break;
+	default:
+		return 0;
+	}
+}
+
+void push(uint8_t reg) {
+	memory[0x0100 + stack_pointer--] = reg;
+ }
+
+uint8_t pull() {
+	return memory[0x0100 + stack_pointer++];
+}
 
 void executeOp() {
 		op_code = memory[program_counter++];
 		switch (op_code) {
-		case (0x00):
+		case (0x00):	// BRK
+			program_counter += 1;
+			push(program_counter);
+			setFlag('b', 1);
+			push(flags);
+			setFlag('i', 1);
+			interrupt_counter -= 7;
 			break;
 		case (0x01):
 			break;
@@ -55,7 +115,7 @@ void executeOp() {
 			;
 			break;
 		case (0x0A):	// ASL A
-			a = a << 1;
+			A = A << 1;
 			interrupt_counter -= 2;
 			break;
 		case (0x0D):
@@ -241,8 +301,9 @@ void executeOp() {
 		case (0x76):
 			;
 			break;
-		case (0x78):
-			;
+		case (0x78):	// SEI
+			setFlag('i', 1);
+			interrupt_counter -= 2;
 			break;
 		case (0x79):
 			;
@@ -274,8 +335,10 @@ void executeOp() {
 		case (0x8C):
 			;
 			break;
-		case (0x8D):
-			;
+		case (0x8D):	// STA $addr
+			memory[ (program_counter & 0x00ff) | ((program_counter + 1) & 0xff00) ] = A;
+			program_counter += 2;
+			interrupt_counter -= 4;
 			break;
 		case (0x8E):
 			;
@@ -301,27 +364,33 @@ void executeOp() {
 		case (0x99):
 			;
 			break;
-		case (0x9A):
+		case (0x9A):	// TXS
 			;
 			break;
 		case (0x9D):
 			;
 			break;
-		case (0xE8):	// INX
-			x++;
+		case (0xA2):	// LDX #value
+			X = memory[program_counter++];
+			interrupt_counter -= 2;
+			break;
+		case (0xA9):	// LDA #value
+			A = memory[program_counter++];
 			interrupt_counter -= 2;
 			break;
 		case (0xC8):	// INY
-			y++;
+			Y++;
+			interrupt_counter -= 2;
+			break;
+		case (0xD8):	// CLD
+			setFlag('d', 0);
+			interrupt_counter -= 2;
+			break;
+		case (0xE8):	// INX
+			X++;
 			interrupt_counter -= 2;
 			break;
 		/*
-		case (0x7E):
-			;
-			break;
-		case (0x7E):
-			;
-			break;
 		case (0x7E):
 			;
 			break;
@@ -364,20 +433,38 @@ void executeOp() {
 	}
 
 void printState() {
-	std::cout << std::showbase << std::hex << "op_code: " << int(op_code) << ", A: " << int(a)
-	<< ", X: " << int(x) << ", Y: " << int(y) << ", flags: " << "N: " << flags.n << " V: " << flags.v
-	<< " B: " << flags.b << " D: " << flags.d << " I: " << flags.i << " Z: " << flags.z << " C: "
-	<< flags.c << ", SP: " << int(stack_pointer) << ", PC: " << int(program_counter) 
-	<< ", interrupt_counter: " << std::dec << int(interrupt_counter) << "\n";
+	std::cout << std::showbase << std::hex 
+	<< "op: " << int(op_code) 
+	<< ", A: " << int(A)
+	<< ", X: " << int(X) 
+	<< ", Y: " << int(Y) 
+	<< std::dec
+	<< " N: " << int(getFlag('n'))
+	<< " V: " << int(getFlag('v'))
+	<< " B: " << int(getFlag('b'))
+	<< " D: " << int(getFlag('d'))
+	<< " I: " << int(getFlag('i'))
+	<< " Z: " << int(getFlag('z'))
+	<< " C: " << int(getFlag('c'))
+	<< std::hex
+	<< ", SP: " << int(stack_pointer)
+	<< ", PC: " << int(program_counter)
+	<< ", interrupt_counter: " << std::dec << int(interrupt_counter)
+	//<< ", next_op: " << int(program_counter+1)
+	<< "\n";
 }
 
 int main(int argc, char* argv[]) {
 
+
+	// TODO: Implement proper rom file header parsing.
 	std::ifstream romfile(argv[1], std::ios::in|std::ios::binary|std::ios::ate);
 	romfile.seekg(16);
 	std::streampos size = 16*1024;
 	romfile.read( (char*) memory+0xc000, size);
 	romfile.close();
+	
+	// Set PC to the reset address specified in the rom.
 	program_counter = (memory[0xfffd] << 8) + memory[0xfffc];
 
 	for(;;) {

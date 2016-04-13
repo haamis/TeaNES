@@ -115,7 +115,10 @@ void executeOp() {
 			;
 			break;
 		case (0x0A):	// ASL A
-			A = A << 1;
+			setFlag('c', A & 0x80); // Check if highest bit is set and set carry flag if it is.
+			A <<= 1;
+			setFlag('n', A & 0x80); // Check highest bit to determine sign.
+			setFlag('z', !A);
 			interrupt_counter -= 2;
 			break;
 		case (0x0D):
@@ -166,8 +169,9 @@ void executeOp() {
 		case (0x28):
 			;
 			break;
-		case (0x29):
-			;
+		case (0x29):	// AND #value
+			A = A & memory[program_counter++];
+			interrupt_counter -= 2;
 			break;
 		case (0x2A):
 			;
@@ -335,8 +339,8 @@ void executeOp() {
 		case (0x8C):
 			;
 			break;
-		case (0x8D):	// STA $addr
-			memory[ (program_counter & 0x00ff) | ((program_counter + 1) & 0xff00) ] = A;
+		case (0x8D):	// STA $addr (absolute)
+			memory[ memory[program_counter] | (memory[program_counter + 1] << 8) ] = A;
 			program_counter += 2;
 			interrupt_counter -= 4;
 			break;
@@ -365,7 +369,8 @@ void executeOp() {
 			;
 			break;
 		case (0x9A):	// TXS
-			;
+			stack_pointer = X;
+			interrupt_counter -= 2;
 			break;
 		case (0x9D):
 			;
@@ -377,6 +382,11 @@ void executeOp() {
 		case (0xA9):	// LDA #value
 			A = memory[program_counter++];
 			interrupt_counter -= 2;
+			break;
+		case (0xAD):	// LDA $addr (absolute)
+			A = memory[ memory[program_counter] | (memory[program_counter + 1] << 8) ];
+			program_counter += 2;
+			interrupt_counter -= 4;
 			break;
 		case (0xC8):	// INY
 			Y++;
@@ -390,44 +400,15 @@ void executeOp() {
 			X++;
 			interrupt_counter -= 2;
 			break;
+		case (0xF0):	// BEQ $addr (relative)
+			if (getFlag('z')) {
+				
+			}
+			break;
 		/*
 		case (0x7E):
 			;
 			break;
-		case (0x7E):
-			;
-			break;
-		case (0x7E):
-			;
-			break;
-		case (0x7E):
-			;
-			break;
-		case (0x7E):
-			;
-			break;
-		case (0x7E):
-			;
-			break;
-		case (0x7E):
-			;
-			break;
-		case (0x7E):
-			;
-			break;
-		case (0x7E):
-			;
-			break;
-		case (0x7E):
-			;
-			break;
-		case (0x7E):
-			;
-			break;
-		case (0x7E):
-			;
-			break;
-
 		*/
 		}
 	}
@@ -450,6 +431,7 @@ void printState() {
 	<< ", SP: " << int(stack_pointer)
 	<< ", PC: " << int(program_counter)
 	<< ", interrupt_counter: " << std::dec << int(interrupt_counter)
+	//<< " $2000: " << std::hex << int(memory[0x2000])
 	//<< ", next_op: " << int(program_counter+1)
 	<< "\n";
 }

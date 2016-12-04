@@ -1,9 +1,5 @@
 #include <iostream>
 #include <fstream>
-//#include <iomanip>
-//#include <memory>
-//#include <cstdint>
-//#include <bitset>
 
 #define INTERRUPT_CYCLES 512
 
@@ -505,6 +501,10 @@ int main(int argc, char* argv[]) {
 	std::streampos size = 16*1024;
 	romfile.read( (char*) memory+0xc000, size);
 	romfile.close();
+
+	// Initialize RAM
+
+	for()
 	
 	// Set PC to the reset address specified in the rom.
 	program_counter = (memory[0xfffd] << 8) + memory[0xfffc];

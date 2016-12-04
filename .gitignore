@@ -1,3 +1,6 @@
 *.out
 *.asm
 *.rom
+*.nes
+TeaNES
+.vscode*

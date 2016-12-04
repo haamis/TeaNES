@@ -1,14 +1,11 @@
 #include <iostream>
-#include <iomanip>
-#include <memory>
 #include <fstream>
-#include <cstdint>
-
-#include <bitset>
+//#include <iomanip>
+//#include <memory>
+//#include <cstdint>
+//#include <bitset>
 
 #define INTERRUPT_CYCLES 512
-
-//using namespace std;
 
 // Declare CPU registers.
 uint8_t A = 0;
@@ -27,28 +24,35 @@ uint8_t op_code;
 
 unsigned char* memory = new unsigned char[64*1024];
 
-void setFlag(char ch, uint8_t v) {
+void setFlag(char ch, uint8_t value) {
 	switch (ch) {
 	case ('n'):		// negative
-		flags = flags | v << 7;
-		break;
+		flags = flags & 0b01111111;		// First we clear the bit.
+		flags = flags | value << 7;		// Then we set the approriate value.
+		break;							// Not the most elegant solution.
 	case ('v'):		// overflow
-		flags = flags | v << 6;
+		flags = flags & 0b10111111;
+		flags = flags | value << 6;
 		break;
 	case ('b'):		// break
-		flags = flags | v << 4;
+		flags = flags & 0b11101111;
+		flags = flags | value << 4;
 		break;
 	case ('d'):		// decimal mode (does nothing on the NES)
-		flags = flags | v << 3;
+		flags = flags & 0b11110111;
+		flags = flags | value << 3;
 		break;
 	case ('i'):		// interrupt disable
-		flags = flags | v << 2;
+		flags = flags & 0b11111011;
+		flags = flags | value << 2;
 		break;
 	case ('z'):		// zero
-		flags = flags | v << 1;
+		flags = flags & 0b11111101;
+		flags = flags | value << 1;
 		break;
 	case ('c'):		// carry
-		flags = flags | v << 0;
+		flags = flags & 0b11111110;
+		flags = flags | value << 0;
 		break;
 	}
 }
@@ -89,8 +93,19 @@ uint8_t pull() {
 	return memory[0x0100 + stack_pointer++];
 }
 
+/*
+uint8_t readMemory() {
+
+}
+
+void writeMemory() {
+
+}
+*/
+
 void executeOp() {
 		op_code = memory[program_counter++];
+		uint16_t target;
 		switch (op_code) {
 		case (0x00):	// BRK
 			program_counter += 1;
@@ -171,6 +186,8 @@ void executeOp() {
 			break;
 		case (0x29):	// AND #value
 			A = A & memory[program_counter++];
+			setFlag('n', A & 0x80);
+			setFlag('z', !A);
 			interrupt_counter -= 2;
 			break;
 		case (0x2A):
@@ -321,8 +338,9 @@ void executeOp() {
 		case (0x81):
 			;
 			break;
-		case (0x84):
-			;
+		case (0x84):	// STY $addr (zero page)
+			memory[ 0x00FF & memory[program_counter++] ] = Y;
+			interrupt_counter -= 3;
 			break;
 		case (0x85):
 			;
@@ -330,8 +348,10 @@ void executeOp() {
 		case (0x86):
 			;
 			break;
-		case (0x88):
-			;
+		case (0x88):	// DEY
+			Y--;
+			setFlag('n', Y & 0x80);
+			interrupt_counter -= 2;
 			break;
 		case (0x8A):
 			;
@@ -350,8 +370,10 @@ void executeOp() {
 		case (0x90):
 			;
 			break;
-		case (0x91):
-			;
+		case (0x91):	// STA (indirect), Y
+			memory[ ((0x00FF & memory[program_counter]) | (memory[ (0x00FF & program_counter) + 1] << 8)) + Y ] = A;
+			program_counter++;
+			interrupt_counter -= 6;
 			break;
 		case (0x94):
 			;
@@ -375,22 +397,48 @@ void executeOp() {
 		case (0x9D):
 			;
 			break;
+		case (0xA0):	// LDY #value
+			Y = memory[program_counter++];
+			setFlag('n', Y & 0x80);
+			setFlag('z', !Y);
+			interrupt_counter -= 2;
+			break;
 		case (0xA2):	// LDX #value
 			X = memory[program_counter++];
+			setFlag('n', X & 0x80);
+			setFlag('z', !X);
 			interrupt_counter -= 2;
 			break;
 		case (0xA9):	// LDA #value
 			A = memory[program_counter++];
+			setFlag('n', A & 0x80);
+			setFlag('z', !A);
 			interrupt_counter -= 2;
 			break;
 		case (0xAD):	// LDA $addr (absolute)
 			A = memory[ memory[program_counter] | (memory[program_counter + 1] << 8) ];
 			program_counter += 2;
+			setFlag('n', A & 0x80);
+			setFlag('z', !A);
 			interrupt_counter -= 4;
 			break;
 		case (0xC8):	// INY
 			Y++;
+			setFlag('n', Y & 0x80);
+			setFlag('z', !Y);
 			interrupt_counter -= 2;
+			break;
+		case (0xD0):	// BNE $addr (relative)
+			target = program_counter + (int8_t)memory[program_counter];
+			program_counter++;
+			if (!getFlag('z')) {
+				if((program_counter & 0xFF00) != (target & 0xFF00)){ // Check if page boundary if crossed and add a cycle if it is.
+					interrupt_counter -= 1;
+				}
+				interrupt_counter -= 1; // Add an extra cycle if branching.
+				program_counter = target;
+			}
+			interrupt_counter -=2;
 			break;
 		case (0xD8):	// CLD
 			setFlag('d', 0);
@@ -398,12 +446,21 @@ void executeOp() {
 			break;
 		case (0xE8):	// INX
 			X++;
+			setFlag('n', X & 0x80);
+			setFlag('z', !X);
 			interrupt_counter -= 2;
 			break;
 		case (0xF0):	// BEQ $addr (relative)
+			target = program_counter + (int8_t)memory[program_counter];
+			program_counter++;
 			if (getFlag('z')) {
-				
+				if((program_counter & 0xFF00) != (target & 0xFF00)){ // Check if page boundary if crossed and add a cycle if it is.
+					interrupt_counter -= 1;
+				}
+				interrupt_counter -= 1; // Add an extra cycle if branching.
+				program_counter = target;
 			}
+			interrupt_counter -=2;
 			break;
 		/*
 		case (0x7E):
@@ -430,15 +487,18 @@ void printState() {
 	<< std::hex
 	<< ", SP: " << int(stack_pointer)
 	<< ", PC: " << int(program_counter)
-	<< ", interrupt_counter: " << std::dec << int(interrupt_counter)
+	<< ", interrupt_counter: " << std::dec << int(interrupt_counter);
 	//<< " $2000: " << std::hex << int(memory[0x2000])
 	//<< ", next_op: " << int(program_counter+1)
-	<< "\n";
+	//<< "\n";
 }
 
 int main(int argc, char* argv[]) {
 
-
+	if(argc < 2) {
+		std::cout << "Usage: TeaNES <romfile>\n";
+		return 1;
+	}
 	// TODO: Implement proper rom file header parsing.
 	std::ifstream romfile(argv[1], std::ios::in|std::ios::binary|std::ios::ate);
 	romfile.seekg(16);
@@ -454,7 +514,7 @@ int main(int argc, char* argv[]) {
 		executeOp();
 		if(interrupt_counter <= 0) {
 			interrupt_counter += INTERRUPT_CYCLES;
-			std::cout << "interrupt_counter <=0!" << '\n';
+			std::cout << "\ninterrupt_counter <=0!";
 		}
 		std::cin.get();
 	}

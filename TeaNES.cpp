@@ -84,17 +84,26 @@ namespace CPU {
 
 	void tick() {
 		// TODO: Tick PPU 3 times a cycle, APU once per cycle.
+		for(int i = 0; i < 3; i++) {
+			PPU::tick();
+		}
+		interrupt_counter--;
 	}
 
 	uint8_t readMemory(uint16_t address) {
 		if (address == 0x2002) {
-			PPU::regs[2] = changeBit(PPU::regs[2], 7, 0);
+			//PPU::setFlag(2, 7, 0);
+			return PPU::regs[2];
 		}
 		tick();
-		return readMemory(address);
+		return memory[address];
 	}
 
 	void writeMemory(uint16_t address, uint8_t value) {
+		if(address >= 0x2000 && address <= 0x2007){
+			PPU::regs[address & 0x7] = value;
+			return;
+		}
 		memory[address] = value;
 		tick();
 	}
@@ -118,7 +127,8 @@ namespace CPU {
 				push(flags);
 				setFlag('i', 1);
 				tick();
-				interrupt_counter -= 7;
+				tick();
+				tick();
 				break;
 			case (0x01):
 				break;
@@ -140,7 +150,6 @@ namespace CPU {
 				setFlag('n', A & 0x80); // Check highest bit to determine sign.
 				setFlag('z', !A);
 				tick();
-				interrupt_counter -= 2;
 				break;
 			case (0x0D):
 				;
@@ -195,7 +204,6 @@ namespace CPU {
 				setFlag('n', A & 0x80);
 				setFlag('z', !A);
 				tick();
-				interrupt_counter -= 2;
 				break;
 			case (0x2A):
 				;
@@ -332,7 +340,6 @@ namespace CPU {
 			case (0x78):	// SEI
 				setFlag('i', 1);
 				tick();
-				interrupt_counter -= 2;
 				break;
 			case (0x79):
 				;
@@ -349,7 +356,6 @@ namespace CPU {
 			case (0x84):	// STY $addr (zero page)
 				writeMemory( 0x00FF & memory[program_counter++], Y);
 				tick();
-				interrupt_counter -= 3;
 				break;
 			case (0x85):
 				;
@@ -362,7 +368,6 @@ namespace CPU {
 				setFlag('n', Y & 0x80);
 				setFlag('z', !Y);
 				tick();
-				interrupt_counter -= 2;
 				break;
 			case (0x8A):
 				;
@@ -373,7 +378,6 @@ namespace CPU {
 			case (0x8D):	// STA $addr (absolute)
 				writeMemory( readMemory(program_counter) | (readMemory(program_counter + 1) << 8), A);
 				program_counter += 2;
-				interrupt_counter -= 4;
 				break;
 			case (0x8E):
 				;
@@ -386,7 +390,6 @@ namespace CPU {
 				program_counter++;
 				tick();
 				tick();
-				interrupt_counter -= 6;
 				break;
 			case (0x94):
 				;
@@ -406,75 +409,68 @@ namespace CPU {
 			case (0x9A):	// TXS
 				stack_pointer = X;
 				tick();
-				interrupt_counter -= 2;
 				break;
 			case (0x9D):
 				;
 				break;
 			case (0xA0):	// LDY #value
-				Y = memory[program_counter++];
+				Y = readMemory(program_counter++);
 				setFlag('n', Y & 0x80);
 				setFlag('z', !Y);
-				interrupt_counter -= 2;
 				break;
 			case (0xA2):	// LDX #value
-				X = memory[program_counter++];
+				X = readMemory(program_counter++);
 				setFlag('n', X & 0x80);
 				setFlag('z', !X);
-				interrupt_counter -= 2;
 				break;
 			case (0xA9):	// LDA #value
-				A = memory[program_counter++];
+				A = readMemory(program_counter++);
 				setFlag('n', A & 0x80);
 				setFlag('z', !A);
-				interrupt_counter -= 2;
 				break;
 			case (0xAD):	// LDA $addr (absolute)
-				A = memory[ memory[program_counter] | (memory[program_counter + 1] << 8) ];
+				A = readMemory( readMemory(program_counter) | (readMemory(program_counter + 1) << 8) );
 				program_counter += 2;
 				setFlag('n', A & 0x80);
 				setFlag('z', !A);
-				interrupt_counter -= 4;
 				break;
 			case (0xC8):	// INY
 				Y++;
 				setFlag('n', Y & 0x80);
 				setFlag('z', !Y);
-				interrupt_counter -= 2;
+				tick();
 				break;
 			case (0xD0):	// BNE $addr (relative)
-				target = program_counter + (int8_t)memory[program_counter];
+				target = program_counter + (int8_t)readMemory(program_counter);
 				if (!getFlag('z')) {
 					if((program_counter & 0xFF00) != (target & 0xFF00)){ // Check if page boundary if crossed and add a cycle if it is.
-						interrupt_counter -= 1;
+						tick();
 					}
-					interrupt_counter -= 1; // Add an extra cycle if branching.
+					tick();		// Add an extra cycle if branching.
 					program_counter = target;
 				}
 				program_counter++;
-				interrupt_counter -=2;
 				break;
 			case (0xD8):	// CLD
 				setFlag('d', 0);
-				interrupt_counter -= 2;
+				tick();
 				break;
 			case (0xE8):	// INX
 				X++;
 				setFlag('n', X & 0x80);
 				setFlag('z', !X);
-				interrupt_counter -= 2;
+				tick();
 				break;
 			case (0xF0):	// BEQ $addr (relative)
-				target = program_counter + (int8_t)memory[program_counter];
+				target = program_counter + (int8_t)readMemory(program_counter);
 				if (getFlag('z')) {
 					if((program_counter & 0xFF00) != (target & 0xFF00)){ // Check if page boundary if crossed and add a cycle if it is.
-						interrupt_counter -= 1;
+						tick();
 					}
-					interrupt_counter -= 1; // Add an extra cycle if branching.
+					tick();		// Add an extra cycle if branching.
 					program_counter = target;
 				}
 				program_counter++;
-				interrupt_counter -=2;
 				break;
 			/*
 			case (0x7E):
@@ -510,6 +506,19 @@ namespace CPU {
 
 namespace PPU {
 	uint8_t regs[8] = {0,0,0,0,0,0,0,0};
+	int vblank_counter = 256 * 20;	// 20 scanlines worth of cycles.
+	void setFlag(int reg, int bit, uint8_t value) {
+		changeBit(regs[reg], bit, value);
+		if(reg == 2 && bit == 7) {
+			vblank_counter = 256 * 20;
+		}
+	}
+	void tick() {
+		vblank_counter--;
+		if(vblank_counter < 0){
+			changeBit(regs[2], 7, 0);
+		}
+	}
 }
 
 int main(int argc, char* argv[]) {

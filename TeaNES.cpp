@@ -1,5 +1,13 @@
 #include <iostream>
 #include <fstream>
+#include "TeaNES.h"
+
+// Helper function to change a certain bit in an 8-bit register.
+uint8_t changeBit (uint8_t byte, int bit, uint8_t value) {
+	byte = byte & (0xFF - (2^bit));	// First we clear the bit.
+	byte = byte | value << bit;		// Then we set the approriate value.
+	return byte;					// Not the most elegant solution.
+}
 
 namespace CPU {
 
@@ -9,7 +17,7 @@ namespace CPU {
 	uint8_t A = 0;
 	uint8_t X = 0;
 	uint8_t Y = 0;
-	uint8_t flags = 0;
+	uint8_t flags = 0x20;		// Pre-set bit 5 to be 1. The NES cpu does not use this bit and it supposed to be 1 at all times. 
 	uint8_t stack_pointer = 255;
 
 	// Counter for counting down cycles to next interrupt.
@@ -23,32 +31,25 @@ namespace CPU {
 	void setFlag(char ch, uint8_t value) {
 		switch (ch) {
 		case ('n'):		// negative
-			flags = flags & 0b01111111;		// First we clear the bit.
-			flags = flags | value << 7;		// Then we set the approriate value.
-			break;							// Not the most elegant solution.
+			flags = changeBit(flags, 7, value);
+			break;
 		case ('v'):		// overflow
-			flags = flags & 0b10111111;
-			flags = flags | value << 6;
+			flags = changeBit(flags, 6, value);
 			break;
 		case ('b'):		// break
-			flags = flags & 0b11101111;
-			flags = flags | value << 4;
+			flags = changeBit(flags, 4, value);
 			break;
 		case ('d'):		// decimal mode (does nothing on the NES)
-			flags = flags & 0b11110111;
-			flags = flags | value << 3;
+			flags = changeBit(flags, 3, value);
 			break;
 		case ('i'):		// interrupt disable
-			flags = flags & 0b11111011;
-			flags = flags | value << 2;
+			flags = changeBit(flags, 2, value);
 			break;
 		case ('z'):		// zero
-			flags = flags & 0b11111101;
-			flags = flags | value << 1;
+			flags = changeBit(flags, 1, value);
 			break;
 		case ('c'):		// carry
-			flags = flags & 0b11111110;
-			flags = flags | value << 0;
+			flags =changeBit(flags, 0, value);
 			break;
 		}
 	}
@@ -81,34 +82,42 @@ namespace CPU {
 		}
 	}
 
+	void tick() {
+		// TODO: Tick PPU 3 times a cycle, APU once per cycle.
+	}
+
+	uint8_t readMemory(uint16_t address) {
+		if (address == 0x2002) {
+			PPU::regs[2] = changeBit(PPU::regs[2], 7, 0);
+		}
+		tick();
+		return readMemory(address);
+	}
+
+	void writeMemory(uint16_t address, uint8_t value) {
+		memory[address] = value;
+		tick();
+	}
+
 	void push(uint8_t reg) {
-		memory[0x0100 + stack_pointer--] = reg;
+		writeMemory(0x0100 + stack_pointer--,reg);
 	}
 
 	uint8_t pull() {
-		return memory[0x0100 + stack_pointer++];
+		return readMemory(0x0100 + stack_pointer++);
 	}
-
-	/*
-	uint8_t readMemory() {
-
-	}
-
-	void writeMemory() {
-
-	}
-	*/
 
 	void executeOp() {
-			op_code = memory[program_counter++];
+			op_code = readMemory(program_counter++);
 			uint16_t target;
 			switch (op_code) {
-			case (0x00):	// BRK
+			case (0x00):	// BRK TODO: tick()*3?
 				program_counter += 1;
 				push(program_counter);
 				setFlag('b', 1);
 				push(flags);
 				setFlag('i', 1);
+				tick();
 				interrupt_counter -= 7;
 				break;
 			case (0x01):
@@ -130,6 +139,7 @@ namespace CPU {
 				A <<= 1;
 				setFlag('n', A & 0x80); // Check highest bit to determine sign.
 				setFlag('z', !A);
+				tick();
 				interrupt_counter -= 2;
 				break;
 			case (0x0D):
@@ -181,9 +191,10 @@ namespace CPU {
 				;
 				break;
 			case (0x29):	// AND #value
-				A = A & memory[program_counter++];
+				A = A & readMemory(program_counter++);
 				setFlag('n', A & 0x80);
 				setFlag('z', !A);
+				tick();
 				interrupt_counter -= 2;
 				break;
 			case (0x2A):
@@ -320,6 +331,7 @@ namespace CPU {
 				break;
 			case (0x78):	// SEI
 				setFlag('i', 1);
+				tick();
 				interrupt_counter -= 2;
 				break;
 			case (0x79):
@@ -335,7 +347,8 @@ namespace CPU {
 				;
 				break;
 			case (0x84):	// STY $addr (zero page)
-				memory[ 0x00FF & memory[program_counter++] ] = Y;
+				writeMemory( 0x00FF & memory[program_counter++], Y);
+				tick();
 				interrupt_counter -= 3;
 				break;
 			case (0x85):
@@ -347,6 +360,8 @@ namespace CPU {
 			case (0x88):	// DEY
 				Y--;
 				setFlag('n', Y & 0x80);
+				setFlag('z', !Y);
+				tick();
 				interrupt_counter -= 2;
 				break;
 			case (0x8A):
@@ -356,7 +371,7 @@ namespace CPU {
 				;
 				break;
 			case (0x8D):	// STA $addr (absolute)
-				memory[ memory[program_counter] | (memory[program_counter + 1] << 8) ] = A;
+				writeMemory( readMemory(program_counter) | (readMemory(program_counter + 1) << 8), A);
 				program_counter += 2;
 				interrupt_counter -= 4;
 				break;
@@ -367,8 +382,10 @@ namespace CPU {
 				;
 				break;
 			case (0x91):	// STA (indirect), Y
-				memory[ ((0x00FF & memory[program_counter]) | (memory[ (0x00FF & program_counter) + 1] << 8)) + Y ] = A;
+				writeMemory( ((0x00FF & readMemory(program_counter)) | (readMemory( (0x00FF & program_counter) + 1) << 8)) + Y, A);
 				program_counter++;
+				tick();
+				tick();
 				interrupt_counter -= 6;
 				break;
 			case (0x94):
@@ -388,6 +405,7 @@ namespace CPU {
 				break;
 			case (0x9A):	// TXS
 				stack_pointer = X;
+				tick();
 				interrupt_counter -= 2;
 				break;
 			case (0x9D):
@@ -426,7 +444,6 @@ namespace CPU {
 				break;
 			case (0xD0):	// BNE $addr (relative)
 				target = program_counter + (int8_t)memory[program_counter];
-				program_counter++;
 				if (!getFlag('z')) {
 					if((program_counter & 0xFF00) != (target & 0xFF00)){ // Check if page boundary if crossed and add a cycle if it is.
 						interrupt_counter -= 1;
@@ -434,6 +451,7 @@ namespace CPU {
 					interrupt_counter -= 1; // Add an extra cycle if branching.
 					program_counter = target;
 				}
+				program_counter++;
 				interrupt_counter -=2;
 				break;
 			case (0xD8):	// CLD
@@ -448,7 +466,6 @@ namespace CPU {
 				break;
 			case (0xF0):	// BEQ $addr (relative)
 				target = program_counter + (int8_t)memory[program_counter];
-				program_counter++;
 				if (getFlag('z')) {
 					if((program_counter & 0xFF00) != (target & 0xFF00)){ // Check if page boundary if crossed and add a cycle if it is.
 						interrupt_counter -= 1;
@@ -456,6 +473,7 @@ namespace CPU {
 					interrupt_counter -= 1; // Add an extra cycle if branching.
 					program_counter = target;
 				}
+				program_counter++;
 				interrupt_counter -=2;
 				break;
 			/*

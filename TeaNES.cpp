@@ -3,8 +3,8 @@
 #include "TeaNES.h"
 
 // Helper function to change a certain bit in an 8-bit register.
-uint8_t changeBit (uint8_t byte, int bit, uint8_t value) {
-	byte = byte & (0xFF - (2^bit));	// First we clear the bit.
+uint8_t changeBit (uint8_t byte, int bit, bool value) {
+	byte = byte & (0xFF ^ (1 << bit));	// First we clear the bit.
 	byte = byte | value << bit;		// Then we set the approriate value.
 	return byte;					// Not the most elegant solution.
 }
@@ -17,8 +17,8 @@ namespace CPU {
 	uint8_t A = 0;
 	uint8_t X = 0;
 	uint8_t Y = 0;
-	uint8_t flags = 0x20;		// Pre-set bit 5 to be 1. The NES cpu does not use this bit and it supposed to be 1 at all times. 
-	uint8_t stack_pointer = 255;
+	uint8_t flags = 0x34;		// Set flags to power-up state (from nesdev.com). 
+	uint8_t stack_pointer = 0xFD;
 
 	// Counter for counting down cycles to next interrupt.
 	int32_t interrupt_counter = INTERRUPT_CYCLES;
@@ -92,7 +92,7 @@ namespace CPU {
 
 	uint8_t readMemory(uint16_t address) {
 		if (address == 0x2002) {
-			//PPU::setFlag(2, 7, 0);
+			PPU::setFlag(2, 7, 0);
 			return PPU::regs[2];
 		}
 		tick();
@@ -157,8 +157,16 @@ namespace CPU {
 			case (0x0E):
 				;
 				break;
-			case (0x10):
-				;
+			case (0x10):	// BPL $addr (relative)
+				target = program_counter + (int8_t)readMemory(program_counter);
+				if (!getFlag('n')) {
+					if((program_counter & 0xFF00) != (target & 0xFF00)){ // Check if page boundary if crossed and add a cycle if it is.
+						tick();
+					}
+					tick();		// Add an extra cycle if branching.
+					program_counter = target;
+				}
+				program_counter++;
 				break;
 			case (0x11):
 				;
@@ -181,8 +189,11 @@ namespace CPU {
 			case (0x1E):
 				;
 				break;
-			case (0x20):
-				;
+			case (0x20):	// JSR $addr
+				push((program_counter >> 8) & 0xff);
+				push((program_counter + 2) & 0xff);
+				program_counter = readMemory(program_counter) | (readMemory(program_counter + 1) << 8);
+				tick();
 				break;
 			case (0x21):
 				;
@@ -357,8 +368,9 @@ namespace CPU {
 				writeMemory( 0x00FF & memory[program_counter++], Y);
 				tick();
 				break;
-			case (0x85):
-				;
+			case (0x85):	// STA $addr (zero page)
+				writeMemory( 0x00FF & memory[program_counter++], A);
+				tick();
 				break;
 			case (0x86):
 				;
@@ -386,7 +398,7 @@ namespace CPU {
 				;
 				break;
 			case (0x91):	// STA (indirect), Y
-				writeMemory( ((0x00FF & readMemory(program_counter)) | (readMemory( (0x00FF & program_counter) + 1) << 8)) + Y, A);
+				writeMemory( (((uint16_t)readMemory(memory[program_counter]) | ((uint16_t)readMemory(memory[program_counter] + 1) << 8))) + Y, A);
 				program_counter++;
 				tick();
 				tick();
@@ -433,6 +445,17 @@ namespace CPU {
 				program_counter += 2;
 				setFlag('n', A & 0x80);
 				setFlag('z', !A);
+				break;
+			case (0xC6):	// DEC #zero page
+				{			// Block to shut the compiler up when declaring temp.
+				std::cout << "\npointer: " << (int) memory[program_counter];
+				std::cout << "\nbefore: " << (int)memory[memory[program_counter]];
+				writeMemory(readMemory(program_counter), readMemory(memory[program_counter]) - 1);
+				uint8_t temp = readMemory(memory[program_counter++]);	// Kinda ugly fix to make the instruction cycles correct.
+				std::cout << "\nafter: " <<(int)temp;
+				setFlag('n', temp & 0x80);
+				setFlag('z', !temp);
+				}
 				break;
 			case (0xC8):	// INY
 				Y++;
@@ -505,7 +528,7 @@ namespace CPU {
 }
 
 namespace PPU {
-	uint8_t regs[8] = {0,0,0,0,0,0,0,0};
+	uint8_t regs[8] = {0,0,0b10000000,0,0,0,0,0};
 	int vblank_counter = 256 * 20;	// 20 scanlines worth of cycles.
 	void setFlag(int reg, int bit, uint8_t value) {
 		changeBit(regs[reg], bit, value);
@@ -549,6 +572,8 @@ int main(int argc, char* argv[]) {
 			CPU::interrupt_counter += INTERRUPT_CYCLES;
 			std::cout << "\ninterrupt_counter <=0!";
 		}
-		std::cin.get();
+		if(CPU::op_code == 0xC6){
+			std::cin.get();
+		}
 	}
 }

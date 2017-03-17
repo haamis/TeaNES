@@ -5,8 +5,8 @@
 // Helper function to change a certain bit in an 8-bit register.
 uint8_t changeBit (uint8_t byte, int bit, bool value) {
 	byte = byte & (0xFF ^ (1 << bit));	// First we clear the bit.
-	byte = byte | value << bit;		// Then we set the approriate value.
-	return byte;					// Not the most elegant solution.
+	byte = byte | value << bit;			// Then we set the approriate value.
+	return byte;						// Not the most elegant solution.
 }
 
 namespace CPU {
@@ -17,7 +17,7 @@ namespace CPU {
 	uint8_t A = 0;
 	uint8_t X = 0;
 	uint8_t Y = 0;
-	uint8_t flags = 0x34;		// Set flags to power-up state (from nesdev.com). 
+	uint8_t flags = 0x34;			// Set flags to power-up state (from nesdev.com). 
 	uint8_t stack_pointer = 0xFD;
 
 	// Counter for counting down cycles to next interrupt.
@@ -49,7 +49,7 @@ namespace CPU {
 			flags = changeBit(flags, 1, value);
 			break;
 		case ('c'):		// carry
-			flags =changeBit(flags, 0, value);
+			flags = changeBit(flags, 0, value);
 			break;
 		}
 	}
@@ -126,6 +126,7 @@ namespace CPU {
 				setFlag('b', 1);
 				push(flags);
 				setFlag('i', 1);
+				tick();
 				tick();
 				tick();
 				tick();
@@ -214,7 +215,6 @@ namespace CPU {
 				A = A & readMemory(program_counter++);
 				setFlag('n', A & 0x80);
 				setFlag('z', !A);
-				tick();
 				break;
 			case (0x2A):
 				;
@@ -365,11 +365,11 @@ namespace CPU {
 				;
 				break;
 			case (0x84):	// STY $addr (zero page)
-				writeMemory( 0x00FF & memory[program_counter++], Y);
+				writeMemory(0x00FF & memory[program_counter++], Y);
 				tick();
 				break;
 			case (0x85):	// STA $addr (zero page)
-				writeMemory( 0x00FF & memory[program_counter++], A);
+				writeMemory(0x00FF & memory[program_counter++], A);
 				tick();
 				break;
 			case (0x86):
@@ -448,10 +448,10 @@ namespace CPU {
 				break;
 			case (0xC6):	// DEC #zero page
 				{			// Block to shut the compiler up when declaring temp.
-				std::cout << "\npointer: " << (int) memory[program_counter];
+				std::cout << "\npointer: " << (int)memory[program_counter];
 				std::cout << "\nbefore: " << (int)memory[memory[program_counter]];
 				writeMemory(readMemory(program_counter), readMemory(memory[program_counter]) - 1);
-				uint8_t temp = readMemory(memory[program_counter++]);	// Kinda ugly fix to make the instruction cycles correct.
+				uint8_t temp = readMemory(memory[program_counter++]);	// Kind of an ugly fix to make the amount of cycles used correct.
 				std::cout << "\nafter: " <<(int)temp;
 				setFlag('n', temp & 0x80);
 				setFlag('z', !temp);
@@ -530,7 +530,7 @@ namespace CPU {
 namespace PPU {
 	uint8_t regs[8] = {0,0,0b10000000,0,0,0,0,0};
 	int vblank_counter = 256 * 20;	// 20 scanlines worth of cycles.
-	void setFlag(int reg, int bit, uint8_t value) {
+	void setFlag(int reg, int bit, uint8_t value) { 
 		changeBit(regs[reg], bit, value);
 		if(reg == 2 && bit == 7) {
 			vblank_counter = 256 * 20;

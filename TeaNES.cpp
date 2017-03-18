@@ -120,16 +120,15 @@ namespace CPU {
 			op_code = readMemory(program_counter++);
 			uint16_t target;
 			switch (op_code) {
-			case (0x00):	// BRK TODO: tick()*3?
+			case (0x00):	// BRK
 				program_counter += 1;
 				push(program_counter);
 				setFlag('b', 1);
 				push(flags);
 				setFlag('i', 1);
-				tick();
-				tick();
-				tick();
-				tick();
+				for(int i = 0; i<4; i++) {
+					tick();
+				}
 				break;
 			case (0x01):
 				break;
@@ -448,11 +447,8 @@ namespace CPU {
 				break;
 			case (0xC6):	// DEC #zero page
 				{			// Block to shut the compiler up when declaring temp.
-				std::cout << "\npointer: " << (int)memory[program_counter];
-				std::cout << "\nbefore: " << (int)memory[memory[program_counter]];
 				writeMemory(readMemory(program_counter), readMemory(memory[program_counter]) - 1);
 				uint8_t temp = readMemory(memory[program_counter++]);	// Kind of an ugly fix to make the amount of cycles used correct.
-				std::cout << "\nafter: " <<(int)temp;
 				setFlag('n', temp & 0x80);
 				setFlag('z', !temp);
 				}
@@ -572,8 +568,8 @@ int main(int argc, char* argv[]) {
 			CPU::interrupt_counter += INTERRUPT_CYCLES;
 			std::cout << "\ninterrupt_counter <=0!";
 		}
-		if(CPU::op_code == 0xC6){
+		//if(CPU::op_code == 0xC6){
 			std::cin.get();
-		}
+		//}
 	}
 }

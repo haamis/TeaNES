@@ -496,6 +496,8 @@ namespace CPU {
 				;
 				break;
 			*/
+			default:
+				std::cout << "Unsupported op!";
 			}
 		}
 
@@ -525,19 +527,27 @@ namespace CPU {
 
 namespace PPU {
 	uint8_t regs[8] = {0,0,0b10000000,0,0,0,0,0};
-	int vblank_counter = 256 * 20;	// 20 scanlines worth of cycles.
+	uint8_t secondary_OAM[4];
+	uint8_t OAM[64*4];
+	uint8_t scanline_counter = 0;
+	unsigned int frame_counter = 0;
+	//? uint8_t vblank_counter = 256 * 20;	// 20 scanlines worth of cycles.
 	void setFlag(int reg, int bit, uint8_t value) { 
 		changeBit(regs[reg], bit, value);
-		if(reg == 2 && bit == 7) {
+		/*if(reg == 2 && bit == 7) {
 			vblank_counter = 256 * 20;
-		}
+		}*/
 	}
 	void tick() {
+		/*
 		vblank_counter--;
 		if(vblank_counter < 0){
 			changeBit(regs[2], 7, 0);
 		}
+		*/
 	}
+
+
 }
 
 int main(int argc, char* argv[]) {

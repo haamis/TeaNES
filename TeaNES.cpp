@@ -121,12 +121,14 @@ namespace CPU {
 			uint16_t target;
 			switch (op_code) {
 			case (0x00):	// BRK
-				program_counter += 1;
-				push(program_counter);
-				setFlag('b', 1);
-				push(flags);
-				setFlag('i', 1);
-				for(int i = 0; i<4; i++) {
+				if(!getFlag('i')){
+					program_counter++;
+					push((program_counter >> 8) & 0xFF);
+					push(program_counter & 0xFF);
+					setFlag('b', 1);
+					push(flags);
+					setFlag('i', 1);
+					program_counter = readMemory(0xFFFE) | (readMemory(0xFFFF) << 8);
 					tick();
 				}
 				break;
@@ -278,11 +280,16 @@ namespace CPU {
 			case (0x4A):
 				;
 				break;
-			case (0x4C):	// JMP absolute
+			case (0x4C):	// JMP $addr1 $addr2 (absolute)
 				program_counter = readMemory(program_counter) | (readMemory(program_counter + 1) << 8);
 				break;
-			case (0x4D):
-				;
+			case (0x4D):	// RTI
+				flags = pull();
+				program_counter = pull();
+				program_counter += (pull() << 8) + 1;
+				for(int i = 0; i<2; i++) {
+					tick();
+				}
 				break;
 			case (0x4E):
 				;
@@ -324,8 +331,17 @@ namespace CPU {
 			case (0x65):
 				;
 				break;
-			case (0x66):
-				;
+			case (0x66):	// ROR $addr (zero page)
+				{
+					uint8_t temp = readMemory(program_counter);
+					setFlag('c', temp & 1);
+					temp = temp >> 1;
+					temp = temp | 0x80;
+					setFlag('n', temp & 0x80);
+					setFlag('z', !temp);
+					writeMemory(readMemory(program_counter++), temp);
+					tick();
+				}
 				break;
 			case (0x68):
 				;

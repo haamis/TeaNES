@@ -160,7 +160,7 @@ namespace CPU {
 			case (0x10):	// BPL $addr (relative)
 				target = program_counter + (int8_t)readMemory(program_counter);
 				if (!getFlag('n')) {
-					if((program_counter & 0xFF00) != (target & 0xFF00)){ // Check if page boundary if crossed and add a cycle if it is.
+					if((program_counter & 0xFF00) != (target & 0xFF00)){ // Check if page boundary is crossed and add a cycle if it is.
 						tick();
 					}
 					tick();		// Add an extra cycle if branching.
@@ -177,8 +177,9 @@ namespace CPU {
 			case (0x16):
 				;
 				break;
-			case (0x18):
-				;
+			case (0x18):	// CLC
+				setFlag('c', 0);
+				tick();
 				break;
 			case (0x19):
 				;
@@ -191,7 +192,7 @@ namespace CPU {
 				break;
 			case (0x20):	// JSR $addr
 				push((program_counter >> 8) & 0xff);
-				push((program_counter + 2) & 0xff);
+				push((program_counter) & 0xff);
 				program_counter = readMemory(program_counter) | (readMemory(program_counter + 1) << 8);
 				tick();
 				break;
@@ -239,8 +240,9 @@ namespace CPU {
 			case (0x36):
 				;
 				break;
-			case (0x38):
-				;
+			case (0x38):	// SEC
+				setFlag('c', 1);
+				tick();
 				break;
 			case (0x39):
 				;
@@ -257,8 +259,10 @@ namespace CPU {
 			case (0x41):
 				;
 				break;
-			case (0x45):
-				;
+			case (0x45):	// EOR $addr (zero page)
+				A = readMemory(readMemory(program_counter++) ^ A);
+				setFlag('n', A & 0x80);
+				setFlag('z', !A);
 				break;
 			case (0x46):
 				;
@@ -266,14 +270,16 @@ namespace CPU {
 			case (0x48):
 				;
 				break;
-			case (0x49):
-				;
+			case (0x49):	// EOR #value
+				A = readMemory(program_counter++) ^ A;
+				setFlag('n', A & 0x80);
+				setFlag('z', !A);
 				break;
 			case (0x4A):
 				;
 				break;
-			case (0x4C):
-				;
+			case (0x4C):	// JMP absolute
+				program_counter = readMemory(program_counter) | (readMemory(program_counter + 1) << 8);
 				break;
 			case (0x4D):
 				;
@@ -305,8 +311,12 @@ namespace CPU {
 			case (0x5E):
 				;
 				break;
-			case (0x60):
-				;
+			case (0x60):	// RTS
+				program_counter = pull();
+				program_counter += (pull() << 8) + 1;
+				for(int i = 0; i<3; i++) {
+					tick();
+				}
 				break;
 			case (0x61):
 				;
@@ -434,10 +444,21 @@ namespace CPU {
 				setFlag('n', X & 0x80);
 				setFlag('z', !X);
 				break;
+			case (0xA5):	//LDA $addr (zero page)
+				A = readMemory(0x00FF & readMemory(program_counter++));
+				setFlag('n', A & 0x80);
+				setFlag('z', !A);
+				break;
 			case (0xA9):	// LDA #value
 				A = readMemory(program_counter++);
 				setFlag('n', A & 0x80);
 				setFlag('z', !A);
+				break;
+			case (0xAA):	// TAX
+				X = A;
+				setFlag('n', A & 0x80);
+				setFlag('z', !A);
+				tick();
 				break;
 			case (0xAD):	// LDA $addr (absolute)
 				A = readMemory( readMemory(program_counter) | (readMemory(program_counter + 1) << 8) );
@@ -445,10 +466,21 @@ namespace CPU {
 				setFlag('n', A & 0x80);
 				setFlag('z', !A);
 				break;
-			case (0xC6):	// DEC #zero page
-				{			// Block to shut the compiler up when declaring temp.
-				writeMemory(readMemory(program_counter), readMemory(memory[program_counter]) - 1);
-				uint8_t temp = readMemory(memory[program_counter++]);	// Kind of an ugly fix to make the amount of cycles used correct.
+			case (0xBD):	// LDA $addr,X (absolute,X)
+				target = (readMemory(program_counter) | (readMemory(program_counter + 1) << 8)) + X;
+				if((program_counter & 0xFF00) != (target & 0xFF00)){ // Check if page boundary is crossed and add a cycle if it is.
+					tick();
+				}
+				A = readMemory(target);
+				program_counter += 2;
+				setFlag('n', A & 0x80);
+				setFlag('z', !A);
+				break;
+			case (0xC6):	// DEC zero page
+				{
+				uint8_t temp = readMemory(readMemory(program_counter));
+				temp--;
+				writeMemory(readMemory(program_counter), temp);
 				setFlag('n', temp & 0x80);
 				setFlag('z', !temp);
 				}

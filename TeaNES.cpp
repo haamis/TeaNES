@@ -255,8 +255,13 @@ namespace CPU {
 			case (0x3E):
 				;
 				break;
-			case (0x40):
-				;
+			case (0x4D):	// RTI
+				flags = pull();
+				program_counter = pull();
+				program_counter += (pull() << 8) + 1;
+				for(int i = 0; i<2; i++) {
+					tick();
+				}
 				break;
 			case (0x41):
 				;
@@ -269,8 +274,9 @@ namespace CPU {
 			case (0x46):
 				;
 				break;
-			case (0x48):
-				;
+			case (0x48):	// PHA
+				push(flags);
+				tick();
 				break;
 			case (0x49):	// EOR #value
 				A = readMemory(program_counter++) ^ A;
@@ -282,14 +288,6 @@ namespace CPU {
 				break;
 			case (0x4C):	// JMP $addr1 $addr2 (absolute)
 				program_counter = readMemory(program_counter) | (readMemory(program_counter + 1) << 8);
-				break;
-			case (0x4D):	// RTI
-				flags = pull();
-				program_counter = pull();
-				program_counter += (pull() << 8) + 1;
-				for(int i = 0; i<2; i++) {
-					tick();
-				}
 				break;
 			case (0x4E):
 				;
@@ -343,8 +341,10 @@ namespace CPU {
 					tick();
 				}
 				break;
-			case (0x68):
-				;
+			case (0x68):	// PLA
+				flags = pull();
+				tick();
+				tick();
 				break;
 			case (0x69):
 				;
@@ -423,10 +423,8 @@ namespace CPU {
 				;
 				break;
 			case (0x91):	// STA (indirect), Y
-				writeMemory( (((uint16_t)readMemory(memory[program_counter]) | ((uint16_t)readMemory(memory[program_counter] + 1) << 8))) + Y, A);
+				writeMemory( (readMemory(readMemory(program_counter)) | (readMemory(readMemory(program_counter) + 1) << 8)) + Y, A);
 				program_counter++;
-				tick();
-				tick();
 				break;
 			case (0x94):
 				;
@@ -482,6 +480,9 @@ namespace CPU {
 				setFlag('n', A & 0x80);
 				setFlag('z', !A);
 				break;
+			case (0xAE):	// TODO:LDX $addr (absolute)
+				;
+				break;	
 			case (0xBD):	// LDA $addr,X (absolute,X)
 				target = (readMemory(program_counter) | (readMemory(program_counter + 1) << 8)) + X;
 				if((program_counter & 0xFF00) != (target & 0xFF00)){ // Check if page boundary is crossed and add a cycle if it is.
@@ -506,6 +507,24 @@ namespace CPU {
 				setFlag('n', Y & 0x80);
 				setFlag('z', !Y);
 				tick();
+				break;
+			case (0xC9):	// CMP #value
+				{
+				uint8_t temp = readMemory(program_counter++);
+				temp = A - temp;
+				setFlag('c', A < temp);
+				setFlag('n', temp & 0x80);
+				setFlag('z', !temp);
+				}
+				break;
+			case (0xCE):	// DEC $addr (absolute)
+				{
+				uint8_t temp = readMemory( readMemory(program_counter) | readMemory(program_counter + 1) );
+				temp--;
+				writeMemory(readMemory(program_counter), temp);
+				setFlag('n', temp & 0x80);
+				setFlag('z', !temp);
+				}
 				break;
 			case (0xD0):	// BNE $addr (relative)
 				target = program_counter + (int8_t)readMemory(program_counter);

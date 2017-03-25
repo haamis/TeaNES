@@ -118,7 +118,6 @@ namespace CPU {
 
 	void executeOp() {
 			op_code = readMemory(program_counter++);
-			uint16_t target;
 			switch (op_code) {
 			case (0x00):	// BRK
 				if(!getFlag('i')){
@@ -160,7 +159,8 @@ namespace CPU {
 				;
 				break;
 			case (0x10):	// BPL $addr (relative)
-				target = program_counter + (int8_t)readMemory(program_counter);
+				{
+				uint16_t target = program_counter + (int8_t)readMemory(program_counter);
 				if (!getFlag('n')) {
 					if((program_counter & 0xFF00) != (target & 0xFF00)){ // Check if page boundary is crossed and add a cycle if it is.
 						tick();
@@ -169,6 +169,7 @@ namespace CPU {
 					program_counter = target;
 				}
 				program_counter++;
+				}
 				break;
 			case (0x11):
 				;
@@ -422,7 +423,7 @@ namespace CPU {
 			case (0x90):
 				;
 				break;
-			case (0x91):	// STA (indirect), Y
+			case (0x91):	// STA (indirect), Y	TODO: FIX THIS
 				writeMemory( (readMemory(readMemory(program_counter)) | (readMemory(readMemory(program_counter) + 1) << 8)) + Y, A);
 				program_counter++;
 				break;
@@ -480,11 +481,22 @@ namespace CPU {
 				setFlag('n', A & 0x80);
 				setFlag('z', !A);
 				break;
-			case (0xAE):	// TODO:LDX $addr (absolute)
-				;
-				break;	
+			case (0xAE):	// LDX $addr (absolute)
+				X = readMemory( readMemory(program_counter) | (readMemory(program_counter + 1) << 8) );
+				program_counter += 2;
+				setFlag('n', X & 0x80);
+				setFlag('z', !X);
+				break;
+			case (0xB1):	// LDA (indirect), Y	TODO: FIX THIS
+				{
+				uint16_t target = (readMemory(readMemory(program_counter)) | (readMemory(memory[program_counter + 1]) << 8)) + Y;
+				A = readMemory(target);
+				program_counter++;
+				}
+				break;
 			case (0xBD):	// LDA $addr,X (absolute,X)
-				target = (readMemory(program_counter) | (readMemory(program_counter + 1) << 8)) + X;
+				{
+				uint16_t target = (readMemory(program_counter) | (readMemory(program_counter + 1) << 8)) + X;
 				if((program_counter & 0xFF00) != (target & 0xFF00)){ // Check if page boundary is crossed and add a cycle if it is.
 					tick();
 				}
@@ -492,6 +504,7 @@ namespace CPU {
 				program_counter += 2;
 				setFlag('n', A & 0x80);
 				setFlag('z', !A);
+				}
 				break;
 			case (0xC6):	// DEC zero page
 				{
@@ -527,7 +540,8 @@ namespace CPU {
 				}
 				break;
 			case (0xD0):	// BNE $addr (relative)
-				target = program_counter + (int8_t)readMemory(program_counter);
+				{
+				uint16_t target = program_counter + (int8_t)readMemory(program_counter);
 				if (!getFlag('z')) {
 					if((program_counter & 0xFF00) != (target & 0xFF00)){ // Check if page boundary if crossed and add a cycle if it is.
 						tick();
@@ -536,6 +550,7 @@ namespace CPU {
 					program_counter = target;
 				}
 				program_counter++;
+				}
 				break;
 			case (0xD8):	// CLD
 				setFlag('d', 0);
@@ -548,7 +563,8 @@ namespace CPU {
 				tick();
 				break;
 			case (0xF0):	// BEQ $addr (relative)
-				target = program_counter + (int8_t)readMemory(program_counter);
+				{
+				uint16_t target = program_counter + (int8_t)readMemory(program_counter);
 				if (getFlag('z')) {
 					if((program_counter & 0xFF00) != (target & 0xFF00)){ // Check if page boundary if crossed and add a cycle if it is.
 						tick();
@@ -557,6 +573,7 @@ namespace CPU {
 					program_counter = target;
 				}
 				program_counter++;
+				}
 				break;
 			/*
 			case (0x7E):

@@ -1,0 +1,1 @@
+/usr/bin/c++       CMakeFiles/TeaNES.dir/TeaNES.cpp.o  -o TeaNES -rdynamic 

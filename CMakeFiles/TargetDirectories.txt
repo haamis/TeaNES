@@ -1,0 +1,1 @@
+/mnt/e/Ohjelmointi/TeaNES/CMakeFiles/TeaNES.dir

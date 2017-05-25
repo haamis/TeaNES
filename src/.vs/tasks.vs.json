@@ -1,0 +1,15 @@
+{
+  "version": "0.2.1",
+  "tasks": [
+    {
+      "taskName": "task-TeaNES",
+      "appliesTo": "TeaNES.cpp",
+      "type": "command"
+    },
+    {
+      "taskName": "task-CMakeLists",
+      "appliesTo": "CMakeLists.txt",
+      "type": "command"
+    }
+  ]
+}

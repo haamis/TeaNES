@@ -8,6 +8,6 @@ namespace PPU {
     extern void tick();
 }
 namespace Cart {
-	extern uint8_t * memory;
+	extern uint8_t PRG_ROM[32 * 1024];
 }
 #endif

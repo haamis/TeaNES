@@ -27,28 +27,33 @@ namespace CPU {
 	uint8_t op_code;
 
 	uint8_t memory[2 * 1024];
-	//uint8_t * memory = new uint8_t [2 * 1024];
 
 	void setFlag(char ch, uint8_t value) {
 		switch (ch) {
 		case ('n'):		// negative
 			flags = changeBit(flags, 7, value);
 			break;
+
 		case ('v'):		// overflow
 			flags = changeBit(flags, 6, value);
 			break;
+
 		case ('b'):		// break
 			flags = changeBit(flags, 4, value);
 			break;
+
 		case ('d'):		// decimal mode (does nothing on the NES)
 			flags = changeBit(flags, 3, value);
 			break;
+
 		case ('i'):		// interrupt disable
 			flags = changeBit(flags, 2, value);
 			break;
+
 		case ('z'):		// zero
 			flags = changeBit(flags, 1, value);
 			break;
+
 		case ('c'):		// carry
 			flags = changeBit(flags, 0, value);
 			break;
@@ -60,24 +65,31 @@ namespace CPU {
 		case ('n'):		// negative
 			return flags >> 7 & 1;
 			break;
+
 		case ('v'):		// overflow
 			return flags >> 6 & 1;
 			break;
+
 		case ('b'):		// break
 			return flags >> 4 & 1;
 			break;
+
 		case ('d'):		// decimal mode (does nothing on the NES)
 			return flags >> 3 & 1;
 			break;
+
 		case ('i'):		// interrupt disable
 			return flags >> 2 & 1;
 			break;
+
 		case ('z'):		// zero
 			return flags >> 1 & 1;
 			break;
+
 		case ('c'):		// carry
 			return flags >> 0 & 1;
 			break;
+
 		default:
 			return 0;
 		}
@@ -94,8 +106,7 @@ namespace CPU {
 	}
 
 	uint8_t readMemory(uint16_t address) {
-		if (address <= 0x1FFF)
-		{
+		if (address <= 0x1FFF) {
 			return memory[address % 0x800];
 		}
 		if (address >= 0x2000 && address <= 0x3FFF) {
@@ -104,18 +115,20 @@ namespace CPU {
 			}
 			return PPU::regs[address % 8];
 		}
+		if (address >= 0x8000 && address <= 0xFFFF) {
+			return Cart::PRG_ROM[address % 0x8000];
+		}
 		/*
 		return memory[address];
 		*/
 	}
 
 	void writeMemory(uint16_t address, uint8_t value) {
-		if(address >= 0x2000 && address <= 0x2007){
+		if (address >= 0x2000 && address <= 0x2007) {
 			PPU::regs[address & 0x7] = value;
 			return;
 		}
-		if (address <= 0x1FFF)
-		{
+		if (address <= 0x1FFF) {
 			memory[address % 0x800] = value;
 		}
 		/*
@@ -188,7 +201,7 @@ namespace CPU {
 				uint16_t target = program_counter + (int8_t)readMemory(program_counter);
 				if (!getFlag('n')) {
 					tick(1);		// Add an extra cycle if branching.
-					if((program_counter & 0xFF00) != (target & 0xFF00)){ // Check if page boundary is crossed and add a cycle if it is.
+					if((program_counter & 0xFF00) != (target & 0xFF00)) { // Check if page boundary is crossed and add a cycle if it is.
 						tick(1);
 					}
 					program_counter = target;
@@ -621,7 +634,7 @@ namespace CPU {
 			case (0xBD):	// LDA $addr,X (absolute,X)
 				{
 				uint16_t target = (readMemory(program_counter) | (readMemory(program_counter + 1) << 8)) + X;
-				if((program_counter & 0xFF00) != (target & 0xFF00)){ // Check if page boundary is crossed and add a cycle if it is.
+				if((program_counter & 0xFF00) != (target & 0xFF00)) { // Check if page boundary is crossed and add a cycle if it is.
 					tick(1);
 				}
 				A = readMemory(target);
@@ -677,7 +690,7 @@ namespace CPU {
 				uint16_t target = program_counter + (int8_t)readMemory(program_counter);
 				if (!getFlag('z')) {
 					tick(1);		// Add an extra cycle if branching.
-					if((program_counter & 0xFF00) != (target & 0xFF00)){ // Check if page boundary if crossed and add a cycle if it is.
+					if((program_counter & 0xFF00) != (target & 0xFF00)) { // Check if page boundary if crossed and add a cycle if it is.
 						tick(1);
 					}
 					program_counter = target;
@@ -703,7 +716,7 @@ namespace CPU {
 				{
 				uint16_t target = program_counter + (int8_t)readMemory(program_counter);
 				if (getFlag('z')) {
-					if((program_counter & 0xFF00) != (target & 0xFF00)){ // Check if page boundary if crossed and add a cycle if it is.
+					if((program_counter & 0xFF00) != (target & 0xFF00)) { // Check if page boundary if crossed and add a cycle if it is.
 						tick(1);
 					}
 					tick(1);		// Add an extra cycle if branching.
@@ -772,7 +785,6 @@ namespace PPU {
 
 namespace Cart {
 	uint8_t PRG_ROM[32 * 1024];
-	//uint8_t * PRG_ROM = new uint8_t[32 * 1024];
 }
 
 int main(int argc, char* argv[]) {

@@ -115,25 +115,30 @@ namespace CPU {
 			}
 			return PPU::regs[address % 8];
 		}
+		if (address >= 0x4000 && address <= 0x4017) {
+			std::cout << "Unimplemented APU read.";
+			return 0x77;
+		}
 		if (address >= 0x8000 && address <= 0xFFFF) {
 			return Cart::PRG_ROM[address % 0x8000];
 		}
-		/*
-		return memory[address];
-		*/
+		
+		std::cout << "Unhandled memory read.";
+		return 0x77;
 	}
 
 	void writeMemory(uint16_t address, uint8_t value) {
+		if (address <= 0x1FFF) {
+			memory[address % 0x800] = value;
+		}
 		if (address >= 0x2000 && address <= 0x2007) {
 			PPU::regs[address & 0x7] = value;
 			return;
 		}
-		if (address <= 0x1FFF) {
-			memory[address % 0x800] = value;
+		if (address >= 0x4000 && address <= 0x4017) {
+			std::cout << "Unimplemented APU write.";
 		}
-		/*
-		memory[address] = value;
-		*/
+		std::cout << "Unhandled memory write.";
 	}
 
 	void push(uint8_t reg) {

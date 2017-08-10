@@ -4,6 +4,8 @@
 *.nes
 TeaNES
 .vscode*
+.vs/
+src/.vs/
 build/
 CMakeFiles/
 CMakeCache.txt

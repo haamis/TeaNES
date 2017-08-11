@@ -771,7 +771,7 @@ namespace PPU {
 	uint8_t OAM[64*4];
 	uint8_t scanline_counter = 0;
 	unsigned int frame_counter = 0;
-	//? uint8_t vblank_counter = 256 * 20;	// 20 scanlines worth of cycles.
+	uint8_t pixel_on_scanline = 0;
 	void setFlag(int reg, int bit, uint8_t value) { 
 		changeBit(regs[reg], bit, value);
 		/*if(reg == 2 && bit == 7) {
@@ -779,12 +779,15 @@ namespace PPU {
 		}*/
 	}
 	void tick() {
-		/*
-		vblank_counter--;
-		if(vblank_counter < 0){
-			changeBit(regs[2], 7, 0);
+		if (scanline_counter <= 19) {
+			// VINT period. Don't do anything?
+		} else if (scanline_counter == 20) {
+			// Render dummmy scanline.
+		} else if (scanline_counter >= 21 && scanline_counter <= 260) {
+			// Render the actual data.
+		} else if (scanline_counter == 261) {
+			// Do nothing, set VINT.
 		}
-		*/
 	}
 }
 

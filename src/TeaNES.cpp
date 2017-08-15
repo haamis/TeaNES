@@ -11,8 +11,6 @@ uint8_t changeBit (uint8_t byte, int bit, bool value) {
 
 namespace CPU {
 
-#define INTERRUPT_CYCLES 512
-
 	// Declare CPU registers.
 	uint8_t A = 0;
 	uint8_t X = 0;
@@ -21,10 +19,12 @@ namespace CPU {
 	uint8_t stack_pointer = 0xFD;
 
 	// Counter for counting down cycles to next interrupt.
-	int32_t interrupt_counter = INTERRUPT_CYCLES;
 	uint16_t program_counter;
 
 	uint8_t op_code;
+
+	bool interrupt_pending = false;
+	bool interrupt_is_NMI = false;
 
 	uint8_t memory[2 * 1024];
 
@@ -96,7 +96,6 @@ namespace CPU {
 	}
 
 	void tick(int ticks) {
-		interrupt_counter -= ticks;
 		// TODO: Tick PPU 3 times a cycle, APU once per cycle.
 		PPU::tick(3 * ticks);
 	}
@@ -107,7 +106,9 @@ namespace CPU {
 		}
 		if (address >= 0x2000 && address <= 0x3FFF) {
 			if (address == 0x2002) {
+				uint8_t result = PPU::regs[2];
 				PPU::setFlag(2, 7, 0);
+				return result;
 			}
 			return PPU::regs[address % 8];
 		}
@@ -148,344 +149,362 @@ namespace CPU {
 	}
 
 	void executeOp() {
-			op_code = readMemory(program_counter++);
-			switch (op_code) {
 
-			case (0x00):	// BRK
-				if(!getFlag('i')){
-					program_counter++;
-					push((program_counter >> 8) & 0xFF);
-					push(program_counter & 0xFF);
-					setFlag('b', 1);
-					push(flags);
-					setFlag('i', 1);
-					program_counter = readMemory(0xFFFE) | (readMemory(0xFFFF) << 8);
-					tick(7);
-				}
-				break;
+		if (interrupt_pending) {
+			push((program_counter >> 8) & 0xFF);
+			push(program_counter & 0xFF);
+			setFlag('b', 0);
+			push(flags);
+			setFlag('i', 1);
+			if (interrupt_is_NMI) {
+				program_counter = readMemory(0xFFFA) | (readMemory(0xFFFB) << 8);
+			} else {
+				program_counter = readMemory(0xFFFE) | (readMemory(0xFFFF) << 8);
+			}
+			tick(7);
+			std::cout << "Interrupt occurred!\n";
+			interrupt_pending = false;
+			interrupt_is_NMI = false;
+		}
+		op_code = readMemory(program_counter++);
 
-			case (0x08):	// PHP
+		switch (op_code) {
+
+		case (0x00):	// BRK
+			if(!getFlag('i')){
+				program_counter++;
+				push((program_counter >> 8) & 0xFF);
+				push(program_counter & 0xFF);
+				setFlag('b', 1);
 				push(flags);
-				tick(3);
-				break;
-
-			case (0x0A):	// ASL A
-				setFlag('c', A & 0x80); // Check if highest bit is set and set carry flag if it is.
-				A <<= 1;
-				setFlag('n', A & 0x80); // Check highest bit to determine sign.
-				setFlag('z', !A);
-				tick(2);
-				break;
-
-			// TODO: is this even correct?
-			case (0x10):	// BPL $addr (relative)
-				{
-				uint16_t target = program_counter + (int8_t)readMemory(program_counter);
-				if (!getFlag('n')) {
-					tick(1);		// Add an extra cycle if branching.
-					if((program_counter & 0xFF00) != (target & 0xFF00)) { // Check if page boundary is crossed and add a cycle if it is.
-						tick(1);
-					}
-					program_counter = target;
-				}
-				program_counter++;
-				tick(2);
-				}
-				break;
-
-			case (0x18):	// CLC
-				setFlag('c', 0);
-				tick(2);
-				break;
-
-			case (0x20):	// JSR $addr
-				push((program_counter >> 8) & 0xff);
-				push((program_counter) & 0xff);
-				program_counter = readMemory(program_counter) | (readMemory(program_counter + 1) << 8);
-				tick(6);
-				break;
-
-			case (0x29):	// AND #value
-				A = A & readMemory(program_counter++);
-				setFlag('n', A & 0x80);
-				setFlag('z', !A);
-				tick(2);
-				break;
-
-			case (0x38):	// SEC
-				setFlag('c', 1);
-				tick(2);
-				break;
-
-			case (0x4D):	// RTI
-				flags = pull();
-				program_counter = pull();
-				program_counter += (pull() << 8) + 1;
-				tick(6);
-				break;
-
-			case (0x45):	// EOR $addr (zero page)
-				A = readMemory(readMemory(program_counter++) ^ A);
-				setFlag('n', A & 0x80);
-				setFlag('z', !A);
-				tick(3);
-				break;
-
-			case (0x48):	// PHA
-				push(A);
-				tick(3);
-				break;
-
-			case (0x49):	// EOR #value
-				A = readMemory(program_counter++) ^ A;
-				setFlag('n', A & 0x80);
-				setFlag('z', !A);
-				tick(2);
-				break;
-
-			case (0x4C):	// JMP $addr1 $addr2 (absolute)
-				program_counter = readMemory(program_counter) | (readMemory(program_counter + 1) << 8);
-				tick(3);
-				break;
-
-			case (0x60):	// RTS
-				program_counter = pull();
-				program_counter += (pull() << 8);
-				program_counter++;
-				tick(6);
-				break;
-
-			case (0x66):	// ROR $addr (zero page)
-				{
-					uint8_t temp = readMemory(program_counter);
-					setFlag('c', temp & 1);
-					temp = temp >> 1;
-					temp = temp | 0x80;
-					setFlag('n', temp & 0x80);
-					setFlag('z', !temp);
-					writeMemory(readMemory(program_counter++), temp);
-					tick(5);
-				}
-				break;
-
-			case (0x68):	// PLA
-				flags = pull();
-				tick(4);
-				break;
-
-			case (0x78):	// SEI
 				setFlag('i', 1);
-				tick(2);
-				break;
+				program_counter = readMemory(0xFFFE) | (readMemory(0xFFFF) << 8);
+				tick(7);
+			}
+			break;
 
-			case (0x84):	// STY $addr (zero page)
-				writeMemory(0x00FF & readMemory(program_counter++), Y);
-				tick(3);
-				break;
+		case (0x08):	// PHP
+			setFlag('b', 1);
+			push(flags);
+			tick(3);
+			break;
 
-			case (0x85):	// STA $addr (zero page)
-				writeMemory(0x00FF & readMemory(program_counter++), A);
-				tick(3);
-				break;
+		case (0x0A):	// ASL A
+			setFlag('c', A & 0x80); // Check if highest bit is set and set carry flag if it is.
+			A <<= 1;
+			setFlag('n', A & 0x80); // Check highest bit to determine sign.
+			setFlag('z', !A);
+			tick(2);
+			break;
 
-			case (0x88):	// DEY
-				Y--;
-				setFlag('n', Y & 0x80);
-				setFlag('z', !Y);
-				tick(2);
-				break;
-
-			case (0x8D):	// STA $addr (absolute)
-				writeMemory( readMemory(program_counter) | (readMemory(program_counter + 1) << 8), A);
-				program_counter += 2;
-				tick(4);
-				break;
-
-			case (0x91):	// STA (indirect), Y
-				{
-				uint8_t operand = readMemory(program_counter);
-				uint16_t target = (readMemory(operand) | (readMemory(operand + 1) << 8)) + Y;
-				std::cout << "0x91 target: " << std::hex << target << " A value:" << int(A) << "\n";
-				writeMemory(target, A);
-				program_counter++;
-				tick(6);
-				break;
-				}
-
-			case (0x9A):	// TXS
-				stack_pointer = X;
-				tick(2);
-				break;
-
-			case (0xA0):	// LDY #value
-				Y = readMemory(program_counter++);
-				setFlag('n', Y & 0x80);
-				setFlag('z', !Y);
-				tick(2);
-				break;
-
-			case (0xA2):	// LDX #value
-				X = readMemory(program_counter++);
-				setFlag('n', X & 0x80);
-				setFlag('z', !X);
-				tick(2);
-				break;
-
-			case (0xA5):	//LDA $addr (zero page)
-				A = readMemory(0x00FF & readMemory(program_counter++));
-				setFlag('n', A & 0x80);
-				setFlag('z', !A);
-				tick(3);
-				break;
-
-			case (0xA9):	// LDA #value
-				A = readMemory(program_counter++);
-				setFlag('n', A & 0x80);
-				setFlag('z', !A);
-				tick(2);
-				break;
-
-			case (0xAA):	// TAX
-				X = A;
-				setFlag('n', A & 0x80);
-				setFlag('z', !A);
-				tick(2);
-				break;
-
-			case (0xAD):	// LDA $addr (absolute)
-				A = readMemory( readMemory(program_counter) | (readMemory(program_counter + 1) << 8) );
-				program_counter += 2;
-				setFlag('n', A & 0x80);
-				setFlag('z', !A);
-				tick(4);
-				break;
-
-			case (0xAE):	// LDX $addr (absolute)
-				X = readMemory( readMemory(program_counter) | (readMemory(program_counter + 1) << 8) );
-				program_counter += 2;
-				setFlag('n', X & 0x80);
-				setFlag('z', !X);
-				tick(4);
-				break;
-
-			case (0xB1):	// LDA (indirect), Y
-				{
-				uint8_t operand = readMemory(program_counter);
-				uint16_t target = (readMemory(operand) | (readMemory(operand + 1) << 8)) + Y;
-				if ((program_counter & 0xFF00) != (target & 0xFF00)) { // Check if page boundary is crossed and add a cycle if it is.
-					tick(1);
-				}
-				A = readMemory(target);
-				program_counter++;
-				tick(5);
-				}
-				break;
-
-			case (0xBD):	// LDA $addr,X (absolute,X)
-				{
-				uint16_t target = (readMemory(program_counter) | (readMemory(program_counter + 1) << 8)) + X;
+		case (0x10):	// BPL $addr (relative)
+			{
+			uint16_t target = program_counter + (int8_t)readMemory(program_counter);
+			if (!getFlag('n')) {
+				tick(1);		// Add an extra cycle if branching.
 				if((program_counter & 0xFF00) != (target & 0xFF00)) { // Check if page boundary is crossed and add a cycle if it is.
 					tick(1);
 				}
-				A = readMemory(target);
-				program_counter += 2;
-				setFlag('n', A & 0x80);
-				setFlag('z', !A);
-				tick(4);
-				}
-				break;
-
-			case (0xC6):	// DEC zero page
-				{
-				uint8_t temp = readMemory(readMemory(program_counter));
-				temp--;
-				writeMemory(readMemory(program_counter), temp);
-				setFlag('n', temp & 0x80);
-				setFlag('z', !temp);
-				program_counter++;
-				tick(5);
-				}
-				break;
-
-			case (0xC8):	// INY
-				Y++;
-				setFlag('n', Y & 0x80);
-				setFlag('z', !Y);
-				tick(2);
-				break;
-
-			case (0xC9):	// CMP #value
-				{
-				uint8_t temp = readMemory(program_counter++);
-				temp = A - temp;
-				setFlag('c', A < temp);
-				setFlag('n', temp & 0x80);
-				setFlag('z', !temp);
-				tick(2);
-				}
-				break;
-
-			case (0xCE):	// DEC $addr (absolute)
-				{
-				uint8_t temp = readMemory( readMemory(program_counter) | readMemory(program_counter + 1) );
-				temp--;
-				writeMemory(readMemory(program_counter), temp);
-				setFlag('n', temp & 0x80);
-				setFlag('z', !temp);
-				tick(6);
-				}
-				break;
-
-			case (0xD0):	// BNE $addr (relative)
-				{
-				uint16_t target = program_counter + (int8_t)readMemory(program_counter);
-				if (!getFlag('z')) {
-					tick(1);		// Add an extra cycle if branching.
-					if((program_counter & 0xFF00) != (target & 0xFF00)) { // Check if page boundary if crossed and add a cycle if it is.
-						tick(1);
-					}
-					program_counter = target;
-				}
-				program_counter++;
-				tick(2);
-				}
-				break;
-
-			case (0xD8):	// CLD
-				setFlag('d', 0);
-				tick(2);
-				break;
-
-			case (0xE8):	// INX
-				X++;
-				setFlag('n', X & 0x80);
-				setFlag('z', !X);
-				tick(2);
-				break;
-
-			case (0xF0):	// BEQ $addr (relative)
-				{
-				uint16_t target = program_counter + (int8_t)readMemory(program_counter);
-				if (getFlag('z')) {
-					if((program_counter & 0xFF00) != (target & 0xFF00)) { // Check if page boundary if crossed and add a cycle if it is.
-						tick(1);
-					}
-					tick(1);		// Add an extra cycle if branching.
-					program_counter = target;
-				}
-				program_counter++;
-				tick(2);
-				}
-				break;
-			/*
-			case (0x7E):
-				;
-				break;
-			*/
-			default:
-				std::cout << "\nUnsupported op!";
+				program_counter = target;
 			}
+			program_counter++;
+			tick(2);
+			}
+			break;
+
+		case (0x18):	// CLC
+			setFlag('c', 0);
+			tick(2);
+			break;
+
+		case (0x20):	// JSR $addr
+			push((program_counter >> 8) & 0xff);
+			push((program_counter) & 0xff);
+			program_counter = readMemory(program_counter) | (readMemory(program_counter + 1) << 8);
+			tick(6);
+			break;
+
+		case (0x29):	// AND #value
+			A = A & readMemory(program_counter++);
+			setFlag('n', A & 0x80);
+			setFlag('z', !A);
+			tick(2);
+			break;
+
+		case (0x38):	// SEC
+			setFlag('c', 1);
+			tick(2);
+			break;
+
+		case (0x4D):	// RTI
+			flags = pull();
+			program_counter = pull();
+			program_counter += (pull() << 8);
+			tick(6);
+			break;
+
+		case (0x45):	// EOR $addr (zero page)
+			A = readMemory(readMemory(program_counter++) ^ A);
+			setFlag('n', A & 0x80);
+			setFlag('z', !A);
+			tick(3);
+			break;
+
+		case (0x48):	// PHA
+			push(A);
+			tick(3);
+			break;
+
+		case (0x49):	// EOR #value
+			A = readMemory(program_counter++) ^ A;
+			setFlag('n', A & 0x80);
+			setFlag('z', !A);
+			tick(2);
+			break;
+
+		case (0x4C):	// JMP $addr1 $addr2 (absolute)
+			program_counter = readMemory(program_counter) | (readMemory(program_counter + 1) << 8);
+			tick(3);
+			break;
+
+		case (0x60):	// RTS
+			program_counter = pull();
+			program_counter += (pull() << 8);
+			program_counter++;
+			tick(6);
+			break;
+
+		case (0x66):	// ROR $addr (zero page)
+			{
+				uint8_t temp = readMemory(program_counter);
+				setFlag('c', temp & 1);
+				temp = temp >> 1;
+				temp = temp | 0x80;
+				setFlag('n', temp & 0x80);
+				setFlag('z', !temp);
+				writeMemory(readMemory(program_counter++), temp);
+				tick(5);
+			}
+			break;
+
+		case (0x68):	// PLA
+			flags = pull();
+			tick(4);
+			break;
+
+		case (0x78):	// SEI
+			setFlag('i', 1);
+			tick(2);
+			break;
+
+		case (0x84):	// STY $addr (zero page)
+			writeMemory(0x00FF & readMemory(program_counter++), Y);
+			tick(3);
+			break;
+
+		case (0x85):	// STA $addr (zero page)
+			writeMemory(0x00FF & readMemory(program_counter++), A);
+			tick(3);
+			break;
+
+		case (0x88):	// DEY
+			Y--;
+			setFlag('n', Y & 0x80);
+			setFlag('z', !Y);
+			tick(2);
+			break;
+
+		case (0x8D):	// STA $addr (absolute)
+			writeMemory( readMemory(program_counter) | (readMemory(program_counter + 1) << 8), A);
+			program_counter += 2;
+			tick(4);
+			break;
+
+		case (0x91):	// STA (indirect), Y
+			{
+			uint8_t operand = readMemory(program_counter);
+			uint16_t target = (readMemory(operand) | (readMemory(operand + 1) << 8)) + Y;
+			std::cout << "0x91 target: " << std::hex << target << " A value:" << int(A) << "\n";
+			writeMemory(target, A);
+			program_counter++;
+			tick(6);
+			break;
+			}
+
+		case (0x9A):	// TXS
+			stack_pointer = X;
+			tick(2);
+			break;
+
+		case (0xA0):	// LDY #value
+			Y = readMemory(program_counter++);
+			setFlag('n', Y & 0x80);
+			setFlag('z', !Y);
+			tick(2);
+			break;
+
+		case (0xA2):	// LDX #value
+			X = readMemory(program_counter++);
+			setFlag('n', X & 0x80);
+			setFlag('z', !X);
+			tick(2);
+			break;
+
+		case (0xA5):	//LDA $addr (zero page)
+			A = readMemory(0x00FF & readMemory(program_counter++));
+			setFlag('n', A & 0x80);
+			setFlag('z', !A);
+			tick(3);
+			break;
+
+		case (0xA9):	// LDA #value
+			A = readMemory(program_counter++);
+			setFlag('n', A & 0x80);
+			setFlag('z', !A);
+			tick(2);
+			break;
+
+		case (0xAA):	// TAX
+			X = A;
+			setFlag('n', A & 0x80);
+			setFlag('z', !A);
+			tick(2);
+			break;
+
+		case (0xAD):	// LDA $addr (absolute)
+			A = readMemory( readMemory(program_counter) | (readMemory(program_counter + 1) << 8) );
+			program_counter += 2;
+			setFlag('n', A & 0x80);
+			setFlag('z', !A);
+			tick(4);
+			break;
+
+		case (0xAE):	// LDX $addr (absolute)
+			X = readMemory( readMemory(program_counter) | (readMemory(program_counter + 1) << 8) );
+			program_counter += 2;
+			setFlag('n', X & 0x80);
+			setFlag('z', !X);
+			tick(4);
+			break;
+
+		case (0xB1):	// LDA (indirect), Y
+			{
+			uint8_t operand = readMemory(program_counter);
+			uint16_t target = (readMemory(operand) | (readMemory(operand + 1) << 8)) + Y;
+			if ((program_counter & 0xFF00) != (target & 0xFF00)) { // Check if page boundary is crossed and add a cycle if it is.
+				tick(1);
+			}
+			A = readMemory(target);
+			program_counter++;
+			tick(5);
+			}
+			break;
+
+		case (0xBD):	// LDA $addr,X (absolute,X)
+			{
+			uint16_t target = (readMemory(program_counter) | (readMemory(program_counter + 1) << 8)) + X;
+			if((program_counter & 0xFF00) != (target & 0xFF00)) { // Check if page boundary is crossed and add a cycle if it is.
+				tick(1);
+			}
+			A = readMemory(target);
+			program_counter += 2;
+			setFlag('n', A & 0x80);
+			setFlag('z', !A);
+			tick(4);
+			}
+			break;
+
+		case (0xC6):	// DEC zero page
+			{
+			uint8_t temp = readMemory(readMemory(program_counter));
+			temp--;
+			writeMemory(readMemory(program_counter), temp);
+			setFlag('n', temp & 0x80);
+			setFlag('z', !temp);
+			program_counter++;
+			tick(5);
+			}
+			break;
+
+		case (0xC8):	// INY
+			Y++;
+			setFlag('n', Y & 0x80);
+			setFlag('z', !Y);
+			tick(2);
+			break;
+
+		case (0xC9):	// CMP #value
+			{
+			uint8_t temp = readMemory(program_counter++);
+			temp = A - temp;
+			setFlag('c', A < temp);
+			setFlag('n', temp & 0x80);
+			setFlag('z', !temp);
+			tick(2);
+			}
+			break;
+
+		case (0xCE):	// DEC $addr (absolute)
+			{
+			uint8_t temp = readMemory( readMemory(program_counter) | readMemory(program_counter + 1) );
+			temp--;
+			writeMemory(readMemory(program_counter), temp);
+			setFlag('n', temp & 0x80);
+			setFlag('z', !temp);
+			tick(6);
+			}
+			break;
+
+		case (0xD0):	// BNE $addr (relative)
+			{
+			uint16_t target = program_counter + (int8_t)readMemory(program_counter);
+			if (!getFlag('z')) {
+				tick(1);		// Add an extra cycle if branching.
+				if((program_counter & 0xFF00) != (target & 0xFF00)) { // Check if page boundary if crossed and add a cycle if it is.
+					tick(1);
+				}
+				program_counter = target;
+			}
+			program_counter++;
+			tick(2);
+			}
+			break;
+
+		case (0xD8):	// CLD
+			setFlag('d', 0);
+			tick(2);
+			break;
+
+		case (0xE8):	// INX
+			X++;
+			setFlag('n', X & 0x80);
+			setFlag('z', !X);
+			tick(2);
+			break;
+
+		case (0xF0):	// BEQ $addr (relative)
+			{
+			uint16_t target = program_counter + (int8_t)readMemory(program_counter);
+			if (getFlag('z')) {
+				if((program_counter & 0xFF00) != (target & 0xFF00)) { // Check if page boundary if crossed and add a cycle if it is.
+					tick(1);
+				}
+				tick(1);		// Add an extra cycle if branching.
+				program_counter = target;
+			}
+			program_counter++;
+			tick(2);
+			}
+			break;
+		/*
+		case (0x7E):
+			;
+			break;
+		*/
+		default:
+			std::cout << "\nUnsupported op!";
 		}
+	}
 
 	void printState() {
 		std::cout << std::showbase << std::hex
@@ -504,7 +523,6 @@ namespace CPU {
 			<< std::hex
 			<< ", SP: " << int(stack_pointer)
 			<< ", PC: " << int(program_counter)
-			<< ", interrupt_counter: " << std::dec << int(interrupt_counter)
 			<< "\n";
 	}
 
@@ -512,30 +530,54 @@ namespace CPU {
 
 namespace PPU {
 
-	uint8_t regs[8] = {0,0,0b10000000,0,0,0,0,0};
+	/*
+	regs:
+	0-7: PPUCTRL, PPUMASK, PPUSTATUS, OAMADDR, OAMDATA, PPUSCROLL, PPUADDR, PPUDATA
+	*/
+	uint8_t regs[8] = { 0 };
+	uint8_t OAMDMA = 0;
 	uint8_t OAM[64*4];
 	uint8_t secondary_OAM[8];
 
-	uint8_t scanline_counter = 0;
+	int scanline_counter = 0;
 	unsigned int frame_counter = 0;
-	uint8_t pixel_on_scanline = 0;
+	int pixel_on_scanline = 0;
 
-	void setFlag(int reg, int bit, uint8_t value) { 
-		changeBit(regs[reg], bit, value);
+	void setFlag(uint8_t reg, int bit, uint8_t value) { 
+		changeBit(reg, bit, value);
 		/*if(reg == 2 && bit == 7) {
 			vblank_counter = 256 * 20;
 		}*/
 	}
 
 	void tick(int ticks) {
-		if (scanline_counter <= 19) {
-			// VINT period. Don't do anything?
-		} else if (scanline_counter == 20) {
-			// Render dummmy scanline.
-		} else if (scanline_counter >= 21 && scanline_counter <= 260) {
-			// Render the actual data.
-		} else if (scanline_counter == 261) {
-			// Do nothing, set VINT.
+		for (int i = 0; i < ticks; i++) {
+			if (scanline_counter <= 19) {
+				// VINT period. Don't do anything?
+			}
+			else if (scanline_counter == 20) {
+				// Render dummmy scanline.
+			}
+			else if (scanline_counter >= 21 && scanline_counter <= 260) {
+				// Render the actual data.
+			}
+			else if (scanline_counter == 261) {
+				// Do nothing, VBLANK starts next frame.
+				if (pixel_on_scanline == 0) {
+					setFlag(2, 7, 1);
+					CPU::interrupt_pending = true;
+					CPU::interrupt_is_NMI = true;
+				}
+			}
+			pixel_on_scanline++;
+			if (pixel_on_scanline > 340) {
+				scanline_counter++;
+				pixel_on_scanline = 0;
+			}
+			if (scanline_counter > 261)
+			{
+				scanline_counter = 0;
+			}
 		}
 	}
 
@@ -569,10 +611,6 @@ int main(int argc, char* argv[]) {
 	for(;;) {
 		CPU::executeOp();
 		CPU::printState();
-		if(CPU::interrupt_counter <= 0) {
-			CPU::interrupt_counter += INTERRUPT_CYCLES;
-			std::cout << "\ninterrupt_counter <=0!";
-		}
 		if(CPU::op_code == 0xC6){
 			std::cin.get();
 		}

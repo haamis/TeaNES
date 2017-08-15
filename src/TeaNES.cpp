@@ -96,13 +96,9 @@ namespace CPU {
 	}
 
 	void tick(int ticks) {
-		for (int i = 0; i < ticks; i++) {
-			// TODO: Tick PPU 3 times a cycle, APU once per cycle.
-			for (int j = 0; j < 3; j++) {
-				PPU::tick();
-			}
-		}
 		interrupt_counter -= ticks;
+		// TODO: Tick PPU 3 times a cycle, APU once per cycle.
+		PPU::tick(3 * ticks);
 	}
 
 	uint8_t readMemory(uint16_t address) {
@@ -116,29 +112,31 @@ namespace CPU {
 			return PPU::regs[address % 8];
 		}
 		if (address >= 0x4000 && address <= 0x4017) {
-			std::cout << "Unimplemented APU read.";
+			std::cout << "\nUnimplemented APU read.";
 			return 0x77;
 		}
 		if (address >= 0x8000 && address <= 0xFFFF) {
 			return Cart::PRG_ROM[address % 0x8000];
 		}
 		
-		std::cout << "Unhandled memory read.";
+		std::cout << "\nUnhandled memory read! Address: " << std::hex << address;
 		return 0x77;
 	}
 
 	void writeMemory(uint16_t address, uint8_t value) {
 		if (address <= 0x1FFF) {
 			memory[address % 0x800] = value;
+			return;
 		}
 		if (address >= 0x2000 && address <= 0x2007) {
 			PPU::regs[address & 0x7] = value;
 			return;
 		}
 		if (address >= 0x4000 && address <= 0x4017) {
-			std::cout << "Unimplemented APU write.";
+			std::cout << "\nUnimplemented APU write.";
+			return;
 		}
-		std::cout << "Unhandled memory write.";
+		std::cout << "\nUnhandled memory write! Address: " << std::hex << address;
 	}
 
 	void push(uint8_t reg) {
@@ -166,23 +164,9 @@ namespace CPU {
 				}
 				break;
 
-			case (0x01):
-				break;
-
-			case (0x05):
-				;
-				break;
-
-			case (0x06):
-				;
-				break;
-
-			case (0x08):
-				;
-				break;
-
-			case (0x09):
-				;
+			case (0x08):	// PHP
+				push(flags);
+				tick(3);
 				break;
 
 			case (0x0A):	// ASL A
@@ -191,13 +175,6 @@ namespace CPU {
 				setFlag('n', A & 0x80); // Check highest bit to determine sign.
 				setFlag('z', !A);
 				tick(2);
-				break;
-
-			case (0x0D):
-				;
-				break;
-			case (0x0E):
-				;
 				break;
 
 			// TODO: is this even correct?
@@ -216,33 +193,9 @@ namespace CPU {
 				}
 				break;
 
-			case (0x11):
-				;
-				break;
-
-			case (0x15):
-				;
-				break;
-
-			case (0x16):
-				;
-				break;
-
 			case (0x18):	// CLC
 				setFlag('c', 0);
 				tick(2);
-				break;
-
-			case (0x19):
-				;
-				break;
-
-			case (0x1D):
-				;
-				break;
-
-			case (0x1E):
-				;
 				break;
 
 			case (0x20):	// JSR $addr
@@ -252,26 +205,6 @@ namespace CPU {
 				tick(6);
 				break;
 
-			case (0x21):
-				;
-				break;
-
-			case (0x24):
-				;
-				break;
-
-			case (0x25):
-				;
-				break;
-
-			case (0x26):
-				;
-				break;
-
-			case (0x28):
-				;
-				break;
-
 			case (0x29):	// AND #value
 				A = A & readMemory(program_counter++);
 				setFlag('n', A & 0x80);
@@ -279,53 +212,9 @@ namespace CPU {
 				tick(2);
 				break;
 
-			case (0x2A):
-				;
-				break;
-
-			case (0x2C):
-				;
-				break;
-
-			case (0x2D):
-				;
-				break;
-
-			case (0x2E):
-				;
-				break;
-
-			case (0x30):
-				;
-				break;
-
-			case (0x31):
-				;
-				break;
-
-			case (0x35):
-				;
-				break;
-
-			case (0x36):
-				;
-				break;
-
 			case (0x38):	// SEC
 				setFlag('c', 1);
 				tick(2);
-				break;
-
-			case (0x39):
-				;
-				break;
-
-			case (0x3D):
-				;
-				break;
-
-			case (0x3E):
-				;
 				break;
 
 			case (0x4D):	// RTI
@@ -335,10 +224,6 @@ namespace CPU {
 				tick(6);
 				break;
 
-			case (0x41):
-				;
-				break;
-
 			case (0x45):	// EOR $addr (zero page)
 				A = readMemory(readMemory(program_counter++) ^ A);
 				setFlag('n', A & 0x80);
@@ -346,12 +231,8 @@ namespace CPU {
 				tick(3);
 				break;
 
-			case (0x46):
-				;
-				break;
-
 			case (0x48):	// PHA
-				push(flags);
+				push(A);
 				tick(3);
 				break;
 
@@ -362,63 +243,16 @@ namespace CPU {
 				tick(2);
 				break;
 
-			case (0x4A):
-				;
-				break;
-
 			case (0x4C):	// JMP $addr1 $addr2 (absolute)
 				program_counter = readMemory(program_counter) | (readMemory(program_counter + 1) << 8);
 				tick(3);
 				break;
 
-			case (0x4E):
-				;
-				break;
-
-			case (0x50):
-				;
-				break;
-
-			case (0x51):
-				;
-				break;
-
-			case (0x55):
-				;
-				break;
-
-			case (0x56):
-				;
-				break;
-
-			case (0x58):
-				;
-				break;
-
-			case (0x59):
-				;
-				break;
-
-			case (0x5D):
-				;
-				break;
-
-			case (0x5E):
-				;
-				break;
-
 			case (0x60):	// RTS
 				program_counter = pull();
-				program_counter += (pull() << 8) + 1;
+				program_counter += (pull() << 8);
+				program_counter++;
 				tick(6);
-				break;
-
-			case (0x61):
-				;
-				break;
-
-			case (0x65):
-				;
 				break;
 
 			case (0x66):	// ROR $addr (zero page)
@@ -439,75 +273,19 @@ namespace CPU {
 				tick(4);
 				break;
 
-			case (0x69):
-				;
-				break;
-
-			case (0x6A):
-				;
-				break;
-
-			case (0x6C):
-				;
-				break;
-
-			case (0x6D):
-				;
-				break;
-
-			case (0x6E):
-				;
-				break;
-
-			case (0x70):
-				;
-				break;
-
-			case (0x71):
-				;
-				break;
-
-			case (0x75):
-				;
-				break;
-
-			case (0x76):
-				;
-				break;
-
 			case (0x78):	// SEI
 				setFlag('i', 1);
 				tick(2);
 				break;
 
-			case (0x79):
-				;
-				break;
-
-			case (0x7D):
-				;
-				break;
-
-			case (0x7E):
-				;
-				break;
-
-			case (0x81):
-				;
-				break;
-
 			case (0x84):	// STY $addr (zero page)
-				writeMemory(0x00FF & memory[program_counter++], Y);
+				writeMemory(0x00FF & readMemory(program_counter++), Y);
 				tick(3);
 				break;
 
 			case (0x85):	// STA $addr (zero page)
-				writeMemory(0x00FF & memory[program_counter++], A);
+				writeMemory(0x00FF & readMemory(program_counter++), A);
 				tick(3);
-				break;
-
-			case (0x86):
-				;
 				break;
 
 			case (0x88):	// DEY
@@ -517,59 +295,26 @@ namespace CPU {
 				tick(2);
 				break;
 
-			case (0x8A):
-				;
-				break;
-
-			case (0x8C):
-				;
-				break;
 			case (0x8D):	// STA $addr (absolute)
 				writeMemory( readMemory(program_counter) | (readMemory(program_counter + 1) << 8), A);
 				program_counter += 2;
 				tick(4);
 				break;
 
-			case (0x8E):
-				;
-				break;
-
-			case (0x90):
-				;
-				break;
-			case (0x91):	// STA (indirect), Y	TODO: FIX THIS
-				writeMemory( (readMemory(readMemory(program_counter)) | (readMemory(readMemory(program_counter) + 1) << 8)) + Y, A);
+			case (0x91):	// STA (indirect), Y
+				{
+				uint8_t operand = readMemory(program_counter);
+				uint16_t target = (readMemory(operand) | (readMemory(operand + 1) << 8)) + Y;
+				std::cout << "0x91 target: " << std::hex << target << " A value:" << int(A) << "\n";
+				writeMemory(target, A);
 				program_counter++;
 				tick(6);
 				break;
-
-			case (0x94):
-				;
-				break;
-
-			case (0x95):
-				;
-				break;
-
-			case (0x96):
-				;
-				break;
-
-			case (0x98):
-				;
-				break;
-
-			case (0x99):
-				;
-				break;
+				}
 
 			case (0x9A):	// TXS
 				stack_pointer = X;
 				tick(2);
-				break;
-
-			case (0x9D):
-				;
 				break;
 
 			case (0xA0):	// LDY #value
@@ -657,6 +402,7 @@ namespace CPU {
 				writeMemory(readMemory(program_counter), temp);
 				setFlag('n', temp & 0x80);
 				setFlag('z', !temp);
+				program_counter++;
 				tick(5);
 				}
 				break;
@@ -736,49 +482,52 @@ namespace CPU {
 				;
 				break;
 			*/
-			//default:
-				//std::cout << "Unsupported op!";
+			default:
+				std::cout << "\nUnsupported op!";
 			}
 		}
 
 	void printState() {
-		std::cout << std::showbase << std::hex 
-		<< "op: " << int(op_code) 
-		<< ", A: " << int(A)
-		<< ", X: " << int(X) 
-		<< ", Y: " << int(Y) 
-		<< std::dec
-		<< " N: " << int(getFlag('n'))
-		<< " V: " << int(getFlag('v'))
-		<< " B: " << int(getFlag('b'))
-		<< " D: " << int(getFlag('d'))
-		<< " I: " << int(getFlag('i'))
-		<< " Z: " << int(getFlag('z'))
-		<< " C: " << int(getFlag('c'))
-		<< std::hex
-		<< ", SP: " << int(stack_pointer)
-		<< ", PC: " << int(program_counter)
-		<< ", interrupt_counter: " << std::dec << int(interrupt_counter);
-		//<< " $2000: " << std::hex << int(memory[0x2000])
-		//<< ", next_op: " << int(program_counter+1)
-		//<< "\n";
+		std::cout << std::showbase << std::hex
+			<< "op: " << int(op_code)
+			<< ", A: " << int(A)
+			<< ", X: " << int(X)
+			<< ", Y: " << int(Y)
+			<< std::dec
+			<< " N: " << int(getFlag('n'))
+			<< " V: " << int(getFlag('v'))
+			<< " B: " << int(getFlag('b'))
+			<< " D: " << int(getFlag('d'))
+			<< " I: " << int(getFlag('i'))
+			<< " Z: " << int(getFlag('z'))
+			<< " C: " << int(getFlag('c'))
+			<< std::hex
+			<< ", SP: " << int(stack_pointer)
+			<< ", PC: " << int(program_counter)
+			<< ", interrupt_counter: " << std::dec << int(interrupt_counter)
+			<< "\n";
 	}
+
 }
 
 namespace PPU {
+
 	uint8_t regs[8] = {0,0,0b10000000,0,0,0,0,0};
-	uint8_t secondary_OAM[4];
 	uint8_t OAM[64*4];
+	uint8_t secondary_OAM[8];
+
 	uint8_t scanline_counter = 0;
 	unsigned int frame_counter = 0;
 	uint8_t pixel_on_scanline = 0;
+
 	void setFlag(int reg, int bit, uint8_t value) { 
 		changeBit(regs[reg], bit, value);
 		/*if(reg == 2 && bit == 7) {
 			vblank_counter = 256 * 20;
 		}*/
 	}
-	void tick() {
+
+	void tick(int ticks) {
 		if (scanline_counter <= 19) {
 			// VINT period. Don't do anything?
 		} else if (scanline_counter == 20) {
@@ -789,6 +538,7 @@ namespace PPU {
 			// Do nothing, set VINT.
 		}
 	}
+
 }
 
 namespace Cart {
@@ -817,14 +567,14 @@ int main(int argc, char* argv[]) {
 	CPU::program_counter = (Cart::PRG_ROM[0x7ffd] << 8) + Cart::PRG_ROM[0x7ffc];
 
 	for(;;) {
-		CPU::printState();
 		CPU::executeOp();
+		CPU::printState();
 		if(CPU::interrupt_counter <= 0) {
 			CPU::interrupt_counter += INTERRUPT_CYCLES;
 			std::cout << "\ninterrupt_counter <=0!";
 		}
-		//if(CPU::op_code == 0xC6){
+		if(CPU::op_code == 0xC6){
 			std::cin.get();
-		//}
+		}
 	}
 }

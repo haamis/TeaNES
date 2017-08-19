@@ -6,7 +6,7 @@
 uint8_t changeBit (uint8_t byte, int bit, bool value) {
 	byte = byte & (0xFF ^ (1 << bit));	// First we clear the bit.
 	byte = byte | value << bit;			// Then we set the approriate value.
-	return byte;						// Not the most elegant solution.
+	return byte;						// Not the most elegant solution?
 }
 
 namespace CPU {
@@ -113,14 +113,14 @@ namespace CPU {
 			return PPU::regs[address % 8];
 		}
 		if (address >= 0x4000 && address <= 0x4017) {
-			std::cout << "\nUnimplemented APU read.";
+			std::cout << "Unimplemented APU read.\n";
 			return 0x77;
 		}
 		if (address >= 0x8000 && address <= 0xFFFF) {
 			return Cart::PRG_ROM[address % 0x8000];
 		}
 		
-		std::cout << "\nUnhandled memory read! Address: " << std::hex << address;
+		std::cout << "Unhandled memory read! Address: " << std::hex << address << "\n";
 		return 0x77;
 	}
 
@@ -134,14 +134,14 @@ namespace CPU {
 			return;
 		}
 		if (address >= 0x4000 && address <= 0x4017) {
-			std::cout << "\nUnimplemented APU write.";
+			std::cout << "Unimplemented APU write.\n";
 			return;
 		}
-		std::cout << "\nUnhandled memory write! Address: " << std::hex << address;
+		std::cout << "\nUnhandled memory write! Address: " << std::hex << address << "\n";
 	}
 
 	void push(uint8_t reg) {
-		writeMemory(0x0100 + stack_pointer--,reg);
+		writeMemory(0x0100 + --stack_pointer,reg);
 	}
 
 	uint8_t pull() {
@@ -150,7 +150,7 @@ namespace CPU {
 
 	void executeOp() {
 
-		if (interrupt_pending) {
+		if (interrupt_pending) {	// TODO: Deal interrupt hijacking properly.
 			push((program_counter >> 8) & 0xFF);
 			push(program_counter & 0xFF);
 			setFlag('b', 0);
@@ -182,6 +182,27 @@ namespace CPU {
 				tick(7);
 			}
 			break;
+
+		case (0x05):	// ORA $addr (zero page)
+			A = A | readMemory(readMemory(program_counter++));
+			setFlag('n', A & 0x80);
+			setFlag('z', !A);
+			tick(3);
+			break;
+
+		case (0x06):	// ASL $addr (zero page)
+			{
+			uint16_t address = readMemory(program_counter);
+			uint8_t temp = readMemory(address);
+			setFlag('c', temp & 0x80); // Check if highest bit is set and set carry flag if it is.
+			temp <<= 1;
+			setFlag('n', temp & 0x80); // Check highest bit to determine sign.
+			setFlag('z', !temp);
+			writeMemory(address, temp);
+			program_counter++;
+			tick(5);
+			break;
+			}
 
 		case (0x08):	// PHP
 			setFlag('b', 1);
@@ -219,10 +240,24 @@ namespace CPU {
 
 		case (0x20):	// JSR $addr
 			push((program_counter >> 8) & 0xff);
-			push((program_counter) & 0xff);
+			//std::cout << ((program_counter >> 8) & 0xff) << "\n";
+			push((program_counter + 2) & 0xff);
+			//std::cout << ((program_counter + 2) & 0xff) << "\n";
 			program_counter = readMemory(program_counter) | (readMemory(program_counter + 1) << 8);
 			tick(6);
 			break;
+
+		case (0x2A):	// ROL A
+			{
+			uint8_t temp = A & 0x80;
+			A <<= 1;
+			changeBit(A, 0, getFlag('c'));
+			setFlag('c', temp);
+			setFlag('n', A & 0x80);
+			setFlag('z', !A);
+			tick(2);
+			break;
+			}
 
 		case (0x29):	// AND #value
 			A = A & readMemory(program_counter++);
@@ -262,6 +297,14 @@ namespace CPU {
 			tick(2);
 			break;
 
+		case (0x4A):	// LSR A
+			setFlag('n', 0);
+			setFlag('c', A & 0x1);
+			A >>= 1;
+			setFlag('z', !A);
+			tick(2);
+			break;
+
 		case (0x4C):	// JMP $addr1 $addr2 (absolute)
 			program_counter = readMemory(program_counter) | (readMemory(program_counter + 1) << 8);
 			tick(3);
@@ -270,20 +313,23 @@ namespace CPU {
 		case (0x60):	// RTS
 			program_counter = pull();
 			program_counter += (pull() << 8);
-			program_counter++;
+			//program_counter++;
 			tick(6);
 			break;
 
 		case (0x66):	// ROR $addr (zero page)
 			{
-				uint8_t temp = readMemory(program_counter);
-				setFlag('c', temp & 1);
-				temp = temp >> 1;
-				temp = temp | 0x80;
-				setFlag('n', temp & 0x80);
-				setFlag('z', !temp);
-				writeMemory(readMemory(program_counter++), temp);
-				tick(5);
+			uint16_t address = readMemory(program_counter);
+			uint8_t tempbyte = readMemory(address);
+			uint8_t tempbit = tempbyte & 0x80;
+			tempbyte >>= 1;
+			changeBit(tempbyte, 7, getFlag('c'));
+			setFlag('c', tempbit);
+			setFlag('n', tempbyte & 0x80);
+			setFlag('z', !tempbyte);
+			writeMemory(address, tempbyte);
+			program_counter++;
+			tick(5);
 			}
 			break;
 
@@ -307,6 +353,11 @@ namespace CPU {
 			tick(3);
 			break;
 
+		case (0x86):	// STX $addr (zero page)
+			writeMemory(0x00FF & readMemory(program_counter++), X);
+			tick(3);
+			break;
+
 		case (0x88):	// DEY
 			Y--;
 			setFlag('n', Y & 0x80);
@@ -324,7 +375,7 @@ namespace CPU {
 			{
 			uint8_t operand = readMemory(program_counter);
 			uint16_t target = (readMemory(operand) | (readMemory(operand + 1) << 8)) + Y;
-			std::cout << "0x91 target: " << std::hex << target << " A value:" << int(A) << "\n";
+			//std::cout << "0x91 target: " << std::hex << target << " A value:" << int(A) << "\n";
 			writeMemory(target, A);
 			program_counter++;
 			tick(6);
@@ -354,6 +405,13 @@ namespace CPU {
 			A = readMemory(0x00FF & readMemory(program_counter++));
 			setFlag('n', A & 0x80);
 			setFlag('z', !A);
+			tick(3);
+			break;
+
+		case (0xA6):	//LDX $addr (zero page)
+			X = readMemory(0x00FF & readMemory(program_counter++));
+			setFlag('n', X & 0x80);
+			setFlag('z', !X);
 			tick(3);
 			break;
 
@@ -400,6 +458,13 @@ namespace CPU {
 			}
 			break;
 
+		case (0xB4):	//LDY $addr,X (zero page,X)
+			Y = readMemory( (0x00FF & readMemory(program_counter++)) + X);
+			setFlag('n', Y & 0x80);
+			setFlag('z', !Y);
+			tick(4);
+			break;
+
 		case (0xBD):	// LDA $addr,X (absolute,X)
 			{
 			uint16_t target = (readMemory(program_counter) | (readMemory(program_counter + 1) << 8)) + X;
@@ -416,11 +481,12 @@ namespace CPU {
 
 		case (0xC6):	// DEC zero page
 			{
-			uint8_t temp = readMemory(readMemory(program_counter));
+			uint16_t address = readMemory(program_counter);
+			uint8_t temp = readMemory(address);
 			temp--;
-			writeMemory(readMemory(program_counter), temp);
 			setFlag('n', temp & 0x80);
 			setFlag('z', !temp);
+			writeMemory(address, temp);
 			program_counter++;
 			tick(5);
 			}
@@ -502,7 +568,7 @@ namespace CPU {
 			break;
 		*/
 		default:
-			std::cout << "\nUnsupported op!";
+			std::cout << "Unsupported op!\n";
 		}
 	}
 
@@ -539,9 +605,9 @@ namespace PPU {
 	uint8_t OAM[64*4];
 	uint8_t secondary_OAM[8];
 
-	int scanline_counter = 0;
 	unsigned int frame_counter = 0;
-	int pixel_on_scanline = 0;
+	int scanline_counter = 0;		// Counts up to 261 scanlines.
+	int pixel_on_scanline = 0;		// Counts up to 340 pixels per scanline.
 
 	void setFlag(uint8_t reg, int bit, uint8_t value) { 
 		changeBit(reg, bit, value);
@@ -574,8 +640,7 @@ namespace PPU {
 				scanline_counter++;
 				pixel_on_scanline = 0;
 			}
-			if (scanline_counter > 261)
-			{
+			if (scanline_counter > 261) {
 				scanline_counter = 0;
 			}
 		}
@@ -601,7 +666,7 @@ int main(int argc, char* argv[]) {
 	romfile.close();
 
 	// Initialize RAM like FCEUX does.
-	for(int i = 0; i < 0x2000; i++) {
+	for(int i = 0; i < 0x07FF; i++) {
 		CPU::memory[i] = (i % 4) < 2 ? 0x00 : 0xFF;
 	}
 	

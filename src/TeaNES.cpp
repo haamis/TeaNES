@@ -113,7 +113,7 @@ namespace CPU {
 			return PPU::regs[address % 8];
 		}
 		if (address >= 0x4000 && address <= 0x4017) {
-			std::cout << "Unimplemented APU read.\n";
+			std::cout << "Unimplemented APU/IO read.\n";
 			return 0x77;
 		}
 		if (address >= 0x8000 && address <= 0xFFFF) {
@@ -134,7 +134,7 @@ namespace CPU {
 			return;
 		}
 		if (address >= 0x4000 && address <= 0x4017) {
-			std::cout << "Unimplemented APU write.\n";
+			std::cout << "Unimplemented APU/IO write.\n";
 			return;
 		}
 		std::cout << "\nUnhandled memory write! Address: " << std::hex << address << "\n";
@@ -184,7 +184,7 @@ namespace CPU {
 			break;
 
 		case (0x05):	// ORA $addr (zero page)
-			A = A | readMemory(readMemory(program_counter++));
+			A |= readMemory(readMemory(program_counter++));
 			setFlag('n', A & 0x80);
 			setFlag('z', !A);
 			tick(3);
@@ -218,6 +218,13 @@ namespace CPU {
 			tick(2);
 			break;
 
+		case (0x09):	// ORA #value
+			A |= readMemory(program_counter++);
+			setFlag('n', A & 0x80);
+			setFlag('z', !A);
+			tick(2);
+			break;
+
 		case (0x10):	// BPL $addr (relative)
 			{
 			uint16_t target = program_counter + (int8_t)readMemory(program_counter);
@@ -247,6 +254,30 @@ namespace CPU {
 			tick(6);
 			break;
 
+		case (0x24):	// BIT $addr (zero page)
+			{
+			uint8_t temp = readMemory(readMemory(program_counter++));
+			setFlag('n', temp & 0x80);
+			setFlag('v', temp & 0x40);
+			setFlag('z', !(temp & A));
+			tick(3);
+			break;
+			}
+
+		case (0x25):	// AND $addr (zero page)
+			A &= readMemory(readMemory(program_counter++));
+			setFlag('n', A & 0x80);
+			setFlag('z', !A);
+			tick(3);
+			break;
+
+		case (0x29):	// AND #value
+			A &= readMemory(program_counter++);
+			setFlag('n', A & 0x80);
+			setFlag('z', !A);
+			tick(2);
+			break;
+
 		case (0x2A):	// ROL A
 			{
 			uint8_t temp = A & 0x80;
@@ -259,11 +290,26 @@ namespace CPU {
 			break;
 			}
 
-		case (0x29):	// AND #value
-			A = A & readMemory(program_counter++);
+		case (0x30):	// BMI $addr (relative)
+		{
+			uint16_t target = program_counter + (int8_t)readMemory(program_counter);
+			if (getFlag('n')) {
+				tick(1);		// Add an extra cycle if branching.
+				if ((program_counter & 0xFF00) != (target & 0xFF00)) { // Check if page boundary if crossed and add a cycle if it is.
+					tick(1);
+				}
+				program_counter = target;
+			}
+			program_counter++;
+			tick(2);
+		}
+		break;
+
+		case (0x35):	// AND $addr, X (zero page, X)
+			A &= readMemory(readMemory(program_counter++) + X);
 			setFlag('n', A & 0x80);
 			setFlag('z', !A);
-			tick(2);
+			tick(4);
 			break;
 
 		case (0x38):	// SEC
@@ -271,7 +317,7 @@ namespace CPU {
 			tick(2);
 			break;
 
-		case (0x4D):	// RTI
+		case (0x40):	// RTI
 			flags = pull();
 			program_counter = pull();
 			program_counter += (pull() << 8);
@@ -279,11 +325,24 @@ namespace CPU {
 			break;
 
 		case (0x45):	// EOR $addr (zero page)
-			A = readMemory(readMemory(program_counter++) ^ A);
+			A ^= readMemory(readMemory(program_counter++));
 			setFlag('n', A & 0x80);
 			setFlag('z', !A);
 			tick(3);
 			break;
+
+		case (0x46):	// LSR $addr (zero page)
+			{
+			uint16_t address = readMemory(program_counter++);
+			uint8_t temp = readMemory(address);
+			setFlag('n', 0);
+			setFlag('c', temp & 0x1);
+			temp >>= 1;
+			setFlag('z', !temp);
+			writeMemory(address, temp);
+			tick(5);
+			break;
+			}
 
 		case (0x48):	// PHA
 			push(A);
@@ -317,6 +376,20 @@ namespace CPU {
 			tick(6);
 			break;
 
+		case (0x65):	// ADC $addr (zero page)
+		{
+			uint16_t target = readMemory(program_counter);
+			unsigned int temp = A + readMemory(target) + getFlag('c');
+			setFlag('n', temp & 0x80);
+			setFlag('z', !temp);
+			setFlag('c', temp > 0xFF);
+			setFlag('v', !((A ^ readMemory(target) & 0x80) && ((A ^ temp) & 0x80)));	// Not sure about this.
+			A = (uint8_t)temp;
+			program_counter++;
+			tick(4);
+		}
+		break;
+
 		case (0x66):	// ROR $addr (zero page)
 			{
 			uint16_t address = readMemory(program_counter);
@@ -338,9 +411,39 @@ namespace CPU {
 			tick(4);
 			break;
 
+		case (0x69):	// ADC #value
+		{
+			unsigned int temp = A + readMemory(program_counter) + getFlag('c');
+			setFlag('n', temp & 0x80);
+			setFlag('z', !temp);
+			setFlag('c', temp > 0xFF);
+			setFlag('v', !((A ^ readMemory(program_counter) & 0x80) && ((A ^ temp) & 0x80)));	// Not sure about this.
+			A = (uint8_t)temp;
+			program_counter++;
+			tick(2);
+		}
+		break;
+
 		case (0x78):	// SEI
 			setFlag('i', 1);
 			tick(2);
+			break;
+
+		case (0x7D):	// ADC $addr,X (absolute,X)
+			{
+			uint16_t target = (readMemory(program_counter) | (readMemory(program_counter + 1) << 8)) + X;
+			if ((program_counter & 0xFF00) != (target & 0xFF00)) { // Check if page boundary is crossed and add a cycle if it is.
+				tick(1);
+			}
+			unsigned int temp = A + readMemory(target) + getFlag('c');
+			setFlag('n', temp & 0x80);
+			setFlag('z', !temp);
+			setFlag('c', temp > 0xFF);
+			setFlag('v', !((A ^ readMemory(target) & 0x80) && ((A ^ temp) & 0x80)));	// Not sure about this.
+			A = (uint8_t)temp;
+			program_counter += 2;
+			tick(4);
+			}
 			break;
 
 		case (0x84):	// STY $addr (zero page)
@@ -365,10 +468,44 @@ namespace CPU {
 			tick(2);
 			break;
 
+		case (0x8A):	// TXA
+			A = X;
+			setFlag('n', A & 0x80);
+			setFlag('z', !A);
+			tick(2);
+			break;
+
+		case (0x8C):	// STY $addr (absolute)
+			writeMemory(readMemory(program_counter) | (readMemory(program_counter + 1) << 8), Y);
+			program_counter += 2;
+			tick(4);
+			break;
+
 		case (0x8D):	// STA $addr (absolute)
 			writeMemory( readMemory(program_counter) | (readMemory(program_counter + 1) << 8), A);
 			program_counter += 2;
 			tick(4);
+			break;
+
+		case (0x8E):	// STX $addr (absolute)
+			writeMemory(readMemory(program_counter) | (readMemory(program_counter + 1) << 8), X);
+			program_counter += 2;
+			tick(4);
+			break;
+
+		case (0x90):	// BCC $addr (relative)
+			{
+			uint16_t target = program_counter + (int8_t)readMemory(program_counter);
+			if (!getFlag('c')) {
+				tick(1);		// Add an extra cycle if branching.
+				if ((program_counter & 0xFF00) != (target & 0xFF00)) { // Check if page boundary if crossed and add a cycle if it is.
+					tick(1);
+				}
+				program_counter = target;
+			}
+			program_counter++;
+			tick(2);
+			}
 			break;
 
 		case (0x91):	// STA (indirect), Y
@@ -381,6 +518,18 @@ namespace CPU {
 			tick(6);
 			break;
 			}
+
+		case (0x95):	// STA $addr,X (zero page,X)
+			writeMemory(0x00FF & readMemory(program_counter++) + X, A);
+			tick(3);
+			break;
+
+		case (0x98):	// TYA
+			A = Y;
+			setFlag('n', A & 0x80);
+			setFlag('z', !A);
+			tick(2);
+			break;
 
 		case (0x9A):	// TXS
 			stack_pointer = X;
@@ -401,6 +550,13 @@ namespace CPU {
 			tick(2);
 			break;
 
+		case (0xA4):	//LDY $addr (zero page)
+			Y = readMemory(0x00FF & readMemory(program_counter++));
+			setFlag('n', Y & 0x80);
+			setFlag('z', !Y);
+			tick(3);
+			break;
+
 		case (0xA5):	//LDA $addr (zero page)
 			A = readMemory(0x00FF & readMemory(program_counter++));
 			setFlag('n', A & 0x80);
@@ -413,6 +569,13 @@ namespace CPU {
 			setFlag('n', X & 0x80);
 			setFlag('z', !X);
 			tick(3);
+			break;
+
+		case (0xA8):	// TAY
+			Y = A;
+			setFlag('n', A & 0x80);
+			setFlag('z', !A);
+			tick(2);
 			break;
 
 		case (0xA9):	// LDA #value
@@ -445,6 +608,21 @@ namespace CPU {
 			tick(4);
 			break;
 
+		case (0xB0):	// BCS $addr (relative)
+			{
+			uint16_t target = program_counter + (int8_t)readMemory(program_counter);
+			if (getFlag('c')) {
+				tick(1);		// Add an extra cycle if branching.
+				if ((program_counter & 0xFF00) != (target & 0xFF00)) { // Check if page boundary if crossed and add a cycle if it is.
+					tick(1);
+				}
+				program_counter = target;
+			}
+			program_counter++;
+			tick(2);
+			}
+			break;
+
 		case (0xB1):	// LDA (indirect), Y
 			{
 			uint8_t operand = readMemory(program_counter);
@@ -465,6 +643,27 @@ namespace CPU {
 			tick(4);
 			break;
 
+		case (0xB5):	//LDA $addr,X (zero page,X)
+			A = readMemory((0x00FF & readMemory(program_counter++)) + X);
+			setFlag('n', A & 0x80);
+			setFlag('z', !A);
+			tick(4);
+			break;
+
+		case (0xBC):	// LDY $addr,X (absolute,X)
+			{
+			uint16_t target = (readMemory(program_counter) | (readMemory(program_counter + 1) << 8)) + X;
+			if ((program_counter & 0xFF00) != (target & 0xFF00)) { // Check if page boundary is crossed and add a cycle if it is.
+				tick(1);
+			}
+			Y = readMemory(target);
+			program_counter += 2;
+			setFlag('n', Y & 0x80);
+			setFlag('z', !Y);
+			tick(4);
+			}
+			break;
+
 		case (0xBD):	// LDA $addr,X (absolute,X)
 			{
 			uint16_t target = (readMemory(program_counter) | (readMemory(program_counter + 1) << 8)) + X;
@@ -479,7 +678,7 @@ namespace CPU {
 			}
 			break;
 
-		case (0xC6):	// DEC zero page
+		case (0xC6):	// DEC $addr (zero page)
 			{
 			uint16_t address = readMemory(program_counter);
 			uint8_t temp = readMemory(address);
@@ -510,6 +709,13 @@ namespace CPU {
 			}
 			break;
 
+		case (0xCA):	// DEX
+			X--;
+			setFlag('n', X & 0x80);
+			setFlag('z', !X);
+			tick(2);
+			break;
+
 		case (0xCE):	// DEC $addr (absolute)
 			{
 			uint8_t temp = readMemory( readMemory(program_counter) | readMemory(program_counter + 1) );
@@ -517,6 +723,7 @@ namespace CPU {
 			writeMemory(readMemory(program_counter), temp);
 			setFlag('n', temp & 0x80);
 			setFlag('z', !temp);
+			program_counter += 2;
 			tick(6);
 			}
 			break;
@@ -536,6 +743,19 @@ namespace CPU {
 			}
 			break;
 
+		case (0xD6):	// DEC $addr,X (zero page,X)
+		{
+			uint16_t address = readMemory(program_counter) + X;
+			uint8_t temp = readMemory(address);
+			temp--;
+			setFlag('n', temp & 0x80);
+			setFlag('z', !temp);
+			writeMemory(address, temp);
+			program_counter++;
+			tick(5);
+		}
+		break;
+
 		case (0xD8):	// CLD
 			setFlag('d', 0);
 			tick(2);
@@ -548,14 +768,26 @@ namespace CPU {
 			tick(2);
 			break;
 
+		case (0xEE):	// INC $addr (absolute)
+		{
+			uint8_t temp = readMemory(readMemory(program_counter) | readMemory(program_counter + 1));
+			temp++;
+			writeMemory(readMemory(program_counter), temp);
+			setFlag('n', temp & 0x80);
+			setFlag('z', !temp);
+			program_counter += 2;
+			tick(6);
+		}
+		break;
+
 		case (0xF0):	// BEQ $addr (relative)
 			{
 			uint16_t target = program_counter + (int8_t)readMemory(program_counter);
 			if (getFlag('z')) {
+				tick(1);		// Add an extra cycle if branching.
 				if((program_counter & 0xFF00) != (target & 0xFF00)) { // Check if page boundary if crossed and add a cycle if it is.
 					tick(1);
 				}
-				tick(1);		// Add an extra cycle if branching.
 				program_counter = target;
 			}
 			program_counter++;
@@ -675,9 +907,9 @@ int main(int argc, char* argv[]) {
 
 	for(;;) {
 		CPU::executeOp();
-		CPU::printState();
-		if(CPU::op_code == 0xC6){
+		//CPU::printState();
+		/*if(CPU::op_code == 0xC6){
 			std::cin.get();
-		}
+		}*/
 	}
 }
